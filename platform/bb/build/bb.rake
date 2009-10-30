@@ -1,6 +1,19 @@
 #
+
+def freplace( fname, pattern, str )
+  f = File.open( fname )
+  strings = f.read
+  f.close
+
+  strings.gsub!( pattern, str )
+
+  f = File.new( fname, "w" )
+  f.print strings
+  f.close
+end
+
 def startmds
-  mdshome =  $config["env"]["paths"][$config["env"]["bbver"]]["mds"]
+  mdshome =  $config["env"]["paths"][$bbver]["mds"]
   args = []
   args << "/c"
   args << "run.bat"
@@ -9,7 +22,7 @@ def startmds
 end 
 
 def stopmds
-  mdshome =  $config["env"]["paths"][$config["env"]["bbver"]]["mds"]
+  mdshome =  $config["env"]["paths"][$bbver]["mds"]
   args = []
   args << "/c"
   args << "shutdown.bat"
@@ -18,9 +31,8 @@ def stopmds
 end 
 
 def startsim
-  bbver = $config["env"]["bbver"]
-  sim = $config["env"]["paths"][bbver]["sim"]
-  jde = $config["env"]["paths"][bbver]["jde"]
+  sim = $config["env"]["paths"][$bbver]["sim"]
+  jde = $config["env"]["paths"][$bbver]["jde"]
     
   command =  '"' + jde + "/simulator/fledge.exe\""
   args = []
@@ -34,30 +46,31 @@ def startsim
   args << "/pin=0x2100000A"
   args << "/no-compact-filesystem"
     
-  if bbver !~ /^4\.[012](\..*)?$/
+  if $bbver !~ /^4\.[012](\..*)?$/
     args << "/fs-sdcard=true"
   end
         
-  args << "\"/app-param=JvmDebugFile:"+Jake.get_absolute($config["env"]["applog"]) +'"'
+  args << "\"/app-param=JvmDebugFile:"+Jake.get_absolute($app_config["applog"]) +'"'
 
   Thread.new { Jake.run(command,args,jde + "/simulator",true) }
   $stdout.flush
 end
 
 def stopsim
-  sim = $config["env"]["paths"][$config["env"]["bbver"]]["sim"]
-  jde = $config["env"]["paths"][$config["env"]["bbver"]]["jde"]
+  sim = $config["env"]["paths"][$bbver]["sim"]
+  jde = $config["env"]["paths"][$bbver]["jde"]
     
   command =  '"' + jde + "/simulator/fledgecontroller.exe\""
   args = []
   args << "/session="+sim
   args << "/execute=Exit(true)"
-  Jake.run(command,args, jde + "/simulator")
+  #Jake.run(command,args, jde + "/simulator")
+  Thread.new { Jake.run(command,args, nil, true,true) }  
 end
 
 def manualsign
   java = $config["env"]["paths"]["java"] + "/java.exe"
-  jde = $config["env"]["paths"][$config["env"]["bbver"]]["jde"]
+  jde = $config["env"]["paths"][$bbver]["jde"]
 
   args = []
   args << "-jar"
@@ -72,7 +85,7 @@ end
 
 def autosign
   java = $config["env"]["paths"]["java"] + "/java.exe"
-  jde = $config["env"]["paths"][$config["env"]["bbver"]]["jde"]
+  jde = $config["env"]["paths"][$bbver]["jde"]
 
   args = []
   args << "-jar"
@@ -92,29 +105,35 @@ end
 
 namespace "config" do
   task :bb => ["config:common"] do
-    bbpath = $config["build"]["bbpath"]
-    $bbver = $config["env"]["bbver"]
-    $builddir = bbpath + "/build"
-    $bindir = bbpath + "/bin"
-    $rhobundledir =  bbpath + "/RhoBundle"
+    $config["platform"] = "bb"
+
+    $bbver = $app_config["bbver"].to_s
+    $builddir = $config["build"]["bbpath"] + "/build"
+    $bindir = $app_path + "/bin"
+    $rhobundledir =  $app_path + "/RhoBundle"
     $srcdir =  $bindir + "/RhoBundle"
-    $preverified = bbpath + "/preverified"
-    $targetdir = bbpath + "/target/" + $bbver
-    $rubyVMdir = bbpath + "/RubyVM"
+    $preverified = $app_path + "/preverified"
+    $targetdir = $bindir + "/target/" + $bbver
+    $rubyVMdir = $app_path + "/RubyVM"
     $excludelib = ['**/singleton.rb','**/rational.rb','**/rhoframework.rb','**/date.rb']
-    $compileERB = bbpath + "/build/compileERB.rb"
+    $compileERB = $app_path + "/build/compileERB.rb"
     $tmpdir =  $bindir +"/tmp"
     $excludeapps = "public/js/iui/**,**/jquery*"
 
+    $assetfolder = $app_path + "/public-" + "bb-" + $bbver
+
+    $outfilebase = $app_config["name"].nil? ? "rhodesApp" : $app_config["name"]
+    $outfilebase.gsub!(/[^A-Za-z_0-9]/, '_')
+    
     $rhobundleimplib = $config["env"]["paths"][$bbver]["jde"] + "/lib/net_rim_api.jar;" +
-      Jake.get_absolute($preverified+"/RubyVM.jar")
-    $rhodesimplib = $rhobundleimplib + ";"+ Jake.get_absolute($preverified+"/RhoBundle.jar")
+      $preverified+"/RubyVM.jar"
+    $rhodesimplib = $rhobundleimplib + ";"+ $preverified+"/RhoBundle.jar"
   end
 end
 
 namespace "build" do
   namespace "bb" do
-    desc "Build rhoBundle"
+#    desc "Build rhoBundle"
     #XXX change to ns build, rhobundle
     task :rhobundle => :rubyvm do
       java = $config["env"]["paths"]["java"] + "/java.exe"
@@ -140,11 +159,16 @@ namespace "build" do
       end
       $stdout.flush
 
+      mkdir_p $rhobundledir unless File.exists? $rhobundledir
       cp $preverified + "/RhoBundle.jar", $rhobundledir + "/RhoBundle.jar"
       
     end
 
-    desc "Build RubyVM"
+    task :devrhobundle => :rhobundle do
+      cp $preverified + "/RhoBundle.jar", "platform/bb/RhoBundle/RhoBundle.jar"
+    end
+    
+#    desc "Build RubyVM"
     task :rubyvm => ["config:bb"] do
       javac = $config["env"]["paths"]["java"] + "/javac.exe"
       jdehome = $config["env"]["paths"][$bbver]["jde"]
@@ -202,7 +226,7 @@ namespace "build" do
       mkdir_p $tmpdir
     end
 
-    desc "Build rhodes"
+#    desc "Build rhodes"
     task :rhodes => [ :rubyvm, :rhobundle ] do
       javac = $config["env"]["paths"]["java"] + "/javac.exe"
       jde =  $config["env"]["paths"][$bbver]["jde"]
@@ -216,12 +240,27 @@ namespace "build" do
 
       if not FileUtils.uptodate?($preverified + "/rhodes.jar",sources)
 
-        vsrcdir = $builddir + "/../rhodes/platform/" + $bbver
-        if !File.exist?( vsrcdir ) || !File.directory?( vsrcdir )
-          vsrcdir = $builddir + "/../rhodes/platform/common"
+        $tmpdir.gsub!(/\\/, '/')
+        vsrclist = $tmpdir + "/vsrc_build.files"
+
+#        vsrclist = $builddir + "/../bin/vsrc_build.files"
+#        mkdir_p $builddir + "/../bin" unless File.exists? $builddir + "/../bin"
+
+        vsrcdir = $tmpdir + "/vsrc"
+        mkdir_p vsrcdir
+        cp_r $builddir + "/../rhodes/platform/common/.", vsrcdir
+        if File.exist?( $builddir + "/../rhodes/platform/" + $bbver )
+          cp_r $builddir + "/../rhodes/platform/" + $bbver + "/.", vsrcdir, :remove_destination => true
         end
 
-        vsrclist = $builddir + "/../bin/vsrc_build.files"
+        # Modify sources to get different class names due to BB limitation -
+        # there can not be two or more applications installed which contains the same
+        # class names which implements Persistable interface. See details here -
+        # http://supportforums.blackberry.com/rim/board/message?board.id=java_dev&thread.id=11152
+        mkdir_p vsrcdir + "/com/rho/file"
+        cp_r $builddir + "/../hsqldb/src/com/rho/file/PersistRAFileImpl.java", vsrcdir + "/com/rho/file"
+        freplace( vsrcdir + "/com/rho/file/PersistRAFileImpl.java", /FileInfoWrapper/, $outfilebase + "_FileInfoWrapper" )
+        freplace( vsrcdir + "/com/rho/file/PersistRAFileImpl.java", /PageWrapper/, $outfilebase + "_PageWrapper" )
 
         fvsrc = File.new( vsrclist, "w" )
         Dir.glob( vsrcdir + "/**/*.java" ).each do |line|
@@ -254,8 +293,10 @@ namespace "build" do
         end
         $stdout.flush
 
+        rm_rf vsrcdir
+
         cp_r $builddir + "/../rhodes/resources", $tmpdir + "/resources"
-        cp $config["env"]["app"] + "/icon/icon.png", $tmpdir +"/resources"
+        cp $app_path + "/icon/icon.png", $tmpdir +"/resources"
         
         Jake.jar($bindir + "/rhodes.jar", $builddir + "/manifest.mf", $tmpdir,true)
         $stdout.flush
@@ -282,15 +323,15 @@ end
 
 namespace "package" do
   namespace "bb" do
-    desc "Package rhoBundle"
+#    desc "Package rhoBundle"
     task :rhobundle => ["build:bb:rhobundle"] do
       Jake.rapc("RhoBundle",
         $targetdir,
         $rhobundleimplib ,
-        '"' + Jake.get_absolute($preverified + "/RhoBundle.jar") + '"',
+        '"' + $preverified + "/RhoBundle.jar" + '"',
         "RhoBundle",
-        $config["env"]["vendor"],
-        $config["env"]["version"]
+        $app_config["vendor"],
+        $app_config["version"]
       )
       unless $? == 0
         puts "Error in RAPC"
@@ -300,7 +341,7 @@ namespace "package" do
 
     end
 
-    desc "Package rubyVM"
+#    desc "Package rubyVM"
     task :rubyvm => "build:bb:rubyvm" do
       jdehome = $config["env"]["paths"][$bbver]["jde"]
 
@@ -308,10 +349,10 @@ namespace "package" do
         Jake.rapc("RubyVM",
           $targetdir,
           jdehome + "/lib/net_rim_api.jar",
-          '"' + Jake.get_absolute($preverified + "/RubyVM.jar") +'"',
+          '"' + $preverified + "/RubyVM.jar" +'"',
           "RubyVM",
-          $config["env"]["vendor"],
-          $config["env"]["version"]
+          $app_config["vendor"],
+          $app_config["version"]
         )
         unless $? == 0
           puts "Error in RAPC"
@@ -325,18 +366,18 @@ namespace "package" do
 
     end
 
-    desc "Package rhodesApp"
+#    desc "Package rhodesApp"
     task :rhodes => ["build:bb:rhodes"] do
-      appname = $config["env"]["appname"].nil? ? "rhodesApp" : $config["env"]["appname"]
+      appname = $app_config["name"].nil? ? "rhodesApp" : $app_config["name"]
 
-      if not FileUtils.uptodate?($targetdir + '/rhodesApp.cod',$preverified + "/rhodes.jar")
-        Jake.rapc("rhodesApp",
+      if not FileUtils.uptodate?($targetdir + '/' + $outfilebase + '.cod',$preverified + "/rhodes.jar")
+        Jake.rapc($outfilebase,
           $targetdir,
           $rhodesimplib,
-          '"' + Jake.get_absolute( $preverified + "/rhodes.jar") +'"',
+          '"' +  $preverified + "/rhodes.jar" +'"',
           appname,
-          $config["env"]["vendor"],
-          $config["env"]["version"],
+          $app_config["vendor"],
+          $app_config["version"],
           "resources/icon.png",
           false,
           true
@@ -346,7 +387,10 @@ namespace "package" do
           exit 1
         end
         $stdout.flush
-        cp $builddir + "/rhodesApp.alx", $targetdir if not FileUtils.uptodate?( $targetdir + "/rhodesApp.alx", $builddir + "/rhodesApp.alx")
+        if not FileUtils.uptodate?( $targetdir + "/" + $outfilebase + ".alx", $builddir + "/rhodesApp.alx" )
+          cp $builddir + "/rhodesApp.alx", $targetdir + "/" + $outfilebase + ".alx"
+          freplace( $targetdir + "/" + $outfilebase + ".alx", /rhodesApp/, appname )
+        end
       else
         puts 'rhodes .cod files are up to date'
         $stdout.flush
@@ -354,7 +398,7 @@ namespace "package" do
           
     end
 
-    desc "Package all production (all parts in one package)"
+#    desc "Package all production (all parts in one package)"
     task :production => ["build:bb:rhodes"] do
       jdehome = $config["env"]["paths"][$bbver]["jde"]
       rm_rf $tmpdir
@@ -380,17 +424,17 @@ namespace "package" do
         end
       end
 
-      Jake.jar($bindir + "/rhodesApp.jar",$builddir + "/manifest.mf",$tmpdir,true)
+      Jake.jar($bindir + "/" + $outfilebase + ".jar",$builddir + "/manifest.mf",$tmpdir,true)
 
-      appname = $config["env"]["appname"].nil? ? "rhodesApp" : $config["env"]["appname"]
+      appname = $app_config["name"].nil? ? "rhodesApp" : $app_config["name"]
 
-      Jake.rapc("rhodesApp",
+      Jake.rapc($outfilebase,
         $targetdir,
         jdehome + "/lib/net_rim_api.jar",
-        '"' + Jake.get_absolute( $bindir + "/rhodesApp.jar") +'"',
+        '"' +  $bindir + "/" + $outfilebase + ".jar" +'"',
         appname,
-        $config["env"]["vendor"],
-        $config["env"]["version"],
+        $app_config["vendor"],
+        $app_config["version"],
         "resources/icon.png",
         false,
         true
@@ -400,12 +444,13 @@ namespace "package" do
         exit 1
       end
       $stdout.flush
-      cp $builddir +"/rhodesApp.alx", $targetdir if not FileUtils.uptodate?( $targetdir+"/rhodesApp.alx", $builddir + "/rhodesApp.alx")
-
-
+      if not FileUtils.uptodate?( $targetdir + "/" + $outfilebase + ".alx", $builddir + "/rhodesApp.alx" )
+        cp $builddir +"/rhodesApp.alx", $targetdir + "/" + $outfilebase + ".alx"
+        freplace( $targetdir + "/" + $outfilebase + ".alx", /rhodesApp/, appname )
+      end
     end
 
-    desc "Package all dev (each part in separate package)"
+#    desc "Package all dev (each part in separate package)"
     task :dev => [ :rubyvm,:rhobundle,:rhodes] do
     end
   end
@@ -416,8 +461,8 @@ end
 
 namespace "device" do
   namespace "bb" do
-    desc "Build and package dev for device"
-    task :dev => "package:bb:dev" do
+    desc "Build debug for device"
+    task :debug => "package:bb:dev" do
 
       #make into functions
       if $config["build"]["bbsignpwd"] and $config["build"]["bbsignpwd"] != ""
@@ -430,16 +475,16 @@ namespace "device" do
       mkdir_p $targetdir + "/web"
 
       cp $targetdir + "/RhoBundle.jad", $targetdir + "/web"
-      cp $targetdir + "/rhodesApp.jad", $targetdir + "/web"
+      cp $targetdir + "/"+$outfilebase+".jad", $targetdir + "/web"
       cp $targetdir + "/RubyVM.jad", $targetdir + "/web"
 
       Jake.unjar($targetdir + "/RhoBundle.cod", $targetdir + "/web")
-      Jake.unjar($targetdir + "/rhodesApp.cod", $targetdir + "/web")
+      Jake.unjar($targetdir + "/"+$outfilebase+".cod", $targetdir + "/web")
       Jake.unjar($targetdir + "/RubyVM.cod", $targetdir + "/web")
 
     end
 
-    desc "Build and package dev rhobundle for device"
+#    desc "Build and package dev rhobundle for device"
     task :rhobundle => "package:bb:rhobundle" do
 
       if $config["build"]["bbsignpwd"] and $config["build"]["bbsignpwd"] != ""
@@ -456,7 +501,7 @@ namespace "device" do
 
     end
 
-    desc "Build and package for production"
+    desc "Build production for device"
     task :production => "package:bb:production" do
 
       if $config["build"]["bbsignpwd"] and $config["build"]["bbsignpwd"] != ""
@@ -465,12 +510,14 @@ namespace "device" do
         manualsign
       end
 
-      rm_rf $targetdir + "/web"
-      mkdir_p $targetdir + "/web"
+      rm_rf $targetdir + "/ota-web"
+      mkdir_p $targetdir + "/ota-web"
 
-      cp $targetdir + "/rhodesApp.jad", $targetdir + "/web"
+      cp $targetdir + "/"+$outfilebase+".jad", $targetdir + "/ota-web"
 
-      Jake.unjar($targetdir + "/rhodesApp.cod", $targetdir + "/web")
+      Jake.unjar($targetdir + "/"+$outfilebase+".cod", $targetdir + "/ota-web")
+      
+      rm_rf Dir.glob($targetdir + "/*.debug")
 
     end
 
@@ -478,46 +525,53 @@ namespace "device" do
 end
 
 namespace "clean" do
+  desc "Clean bb"
+  task :bb => "clean:bb:all"
   namespace "bb" do
-    desc "Clean preverified jars"
+#    desc "Clean preverified jars"
     task :preverified => "config:bb" do
       rm_rf $preverified if File.exists? $preverified
-      mkdir_p $preverified
     end
 
-    desc "Clean packaged files"
+#    desc "Clean packaged files"
     task :packaged => "config:bb" do
-      rm_rf $targetdir
-      mkdir_p $targetdir
+      rm_rf $targetdir +"/../"
     end
 
-    desc "Clean temp dir"
+#    desc "Clean temp dir"
     task :tempdir => "config:bb" do
       rm_rf $tmpdir
-      mkdir_p $tmpdir
     end
 
-    desc "Clean all"
+#    desc "Clean all"
     task :all => [:preverified,:packaged,:tempdir] do
       rm_rf $bindir
+      rm_rf $rhobundledir
     end
 
   end
 end
 
 namespace "run" do
+  namespace "bb" do
+      task :stopmdsandsim => ["config:bb"] do
+        stopsim  
+        stopmds
+      end
 
-  task :stopmdsandsim => ["config:bb"] do
-    stopsim  
-    stopmds
+#      desc "Starts mds and sim"
+      task :startmdsandsim => ["config:bb"] do
+        startmds
+        startsim
+      end
   end
   
-  desc "Builds everything, loads and starts sim"
-  task :bb => [:stopmdsandsim, "package:bb:dev"] do
+  desc "Builds everything, loads and starts bb sim and mds"
+  task :bb => ["run:bb:stopmdsandsim", "package:bb:dev"] do
     #sim = $config["env"]["paths"][$bbver]["sim"]
     jde = $config["env"]["paths"][$bbver]["jde"]
     
-    cp_r Jake.get_absolute(File.join($targetdir,"/.")), jde + "/simulator"
+    cp_r File.join($targetdir,"/."), jde + "/simulator"
     
     startmds
     startsim
@@ -589,23 +643,4 @@ namespace "config" do
     puts "Config appears valid"
   end
 
-end
-
-namespace "prebuild" do
-  desc "Prebuild binaries for blackberry gems"
-  task :bb => ["build:bb:rubyvm", "build:bb:rhodes"] do
-    if File.exists? $preverified + "/RubyVM.jar" and File.exists? $preverified + "/rhodes.jar"
-      prebuilt = "rhodes/rhodes-build/res/prebuilt/bb"
-
-      rm_rf prebuilt if File.exists? prebuilt
-      mkdir_p prebuilt
-
-      cp $preverified + "/RubyVM.jar", prebuilt
-      cp $preverified + "/rhodes.jar", prebuilt
-
-      cp $builddir + "/MANIFEST.MF", prebuilt
-      cp $builddir + "/rhodesApp.alx", prebuilt
-      
-    end
-  end
 end

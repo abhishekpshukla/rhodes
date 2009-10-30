@@ -53,7 +53,7 @@ CSyncThread::~CSyncThread(void)
 void CSyncThread::addSyncCommand(CSyncCommand* pSyncCmd)
 { 
 	{
-        CMutexLock lockNotify(m_mxStackCommands);
+        synchronized(m_mxStackCommands);
 
 		boolean bExist = false;
 		for ( int i = 0; i < (int)m_stackCommands.size(); i++ )
@@ -91,8 +91,6 @@ void CSyncThread::run()
 {
 	LOG(INFO) + "Starting sync engine main routine...";
 
-    RhoRubyThreadStart();
-
 	int nLastSyncInterval = getLastSyncInterval();
 	while( m_oSyncEngine.getState() != CSyncEngine::esExit )
 	{
@@ -107,7 +105,8 @@ void CSyncThread::run()
                 nWait = nWait2;
         }
 
-		if ( nWait >= 0 )
+        if ( nWait >= 0 && m_oSyncEngine.getState() != CSyncEngine::esExit && 
+		     isNoCommands() )
 		{
 		    LOG(INFO) + "Sync engine blocked for " + nWait + " seconds...";
             wait(nWait);
@@ -117,20 +116,29 @@ void CSyncThread::run()
         if ( m_oSyncEngine.getState() != CSyncEngine::esExit )
     		processCommands();
 	}
+}
 
-    RhoRubyThreadStop();
+boolean CSyncThread::isNoCommands()
+{
+	boolean bEmpty = false;
+	synchronized(m_mxStackCommands)
+    {		
+		bEmpty = m_stackCommands.isEmpty();
+	}
+
+	return bEmpty;
 }
 
 void CSyncThread::processCommands()//throws Exception
 {
-	if ( m_stackCommands.isEmpty() )
-		addSyncCommand(new CSyncCommand(scNone));
-	
-	while(!m_stackCommands.isEmpty())
+    if ( isNoCommands() )
+        addSyncCommand(new CSyncCommand(scNone));
+
+	while(!isNoCommands())
 	{
 		common::CAutoPtr<CSyncCommand> pSyncCmd = null;
     	{
-        	CMutexLock lockNotify(m_mxStackCommands);
+        	synchronized(m_mxStackCommands);
     		pSyncCmd = (CSyncCommand*)m_stackCommands.removeFirst();
     	}
 		
@@ -152,11 +160,12 @@ void CSyncThread::processCommand(CSyncCommand& oSyncCmd)
     case scChangePollInterval:
         break;
     case scSyncOne:
-        m_oSyncEngine.doSyncSource(oSyncCmd.m_nCmdParam,oSyncCmd.m_strCmdParam,"","" );
+        m_oSyncEngine.doSyncSource(oSyncCmd.m_nCmdParam,oSyncCmd.m_strCmdParam,"","",false, -1 );
         break;
     case scSearchOne:
         m_oSyncEngine.doSyncSource(oSyncCmd.m_nCmdParam,"",oSyncCmd.m_strCmdParam, 
-            ((CSyncSearchCommand&)oSyncCmd).m_strFrom);
+            ((CSyncSearchCommand&)oSyncCmd).m_strFrom, ((CSyncSearchCommand&)oSyncCmd).m_bSyncChanges,
+            ((CSyncSearchCommand&)oSyncCmd).m_nProgressStep);
         break;
     case scLogin:
     	{
@@ -202,16 +211,17 @@ void rho_sync_stop()
 {
 	if (CSyncThread::getSyncEngine().isSyncing() )
 	{
-		CSyncThread::getSyncEngine().stopSync();
-		while( CSyncThread::getSyncEngine().getState() != CSyncEngine::esNone )
+		CSyncThread::getSyncEngine().stopSyncByUser();
+//		while( CSyncThread::getSyncEngine().getState() != CSyncEngine::esNone )
+        while( CSyncThread::getDBAdapter().isInsideTransaction() )
 			CSyncThread::getInstance()->sleep(100);
 	}
 }
 
-void rho_sync_doSearchSource(int source_id, const char *from, const char *params)
+void rho_sync_doSearchSource(int source_id, const char *from, const char *params, bool sync_changes, int nProgressStep)
 {
     rho_sync_stop();
-    CSyncThread::getInstance()->addSyncCommand(new CSyncThread::CSyncSearchCommand(from,params,source_id) );
+    CSyncThread::getInstance()->addSyncCommand(new CSyncThread::CSyncSearchCommand(from,params,source_id,sync_changes,nProgressStep) );
 }	
 
 void rho_sync_doSyncSourceByUrl(const char* szSrcID)
@@ -256,19 +266,19 @@ void rho_sync_logout()
 
 void rho_sync_set_notification(int source_id, const char *url, char* params)
 {
-    return CSyncThread::getSyncEngine().setNotification(source_id, url, params ? params : "");
+    return CSyncThread::getSyncEngine().getNotify().setSyncNotification(source_id, url, params ? params : "");
 }
 
 void rho_sync_clear_notification(int source_id)
 {
-    return CSyncThread::getSyncEngine().clearNotification(source_id);
+    return CSyncThread::getSyncEngine().getNotify().clearSyncNotification(source_id);
 }
 
 int rho_sync_openDB(const char* szDBPath)
 {
     rho::db::CDBAdapter& db = CSyncThread::getDBAdapter();
-    rho::String strVer = "";//TODO: get version from rhodes 
-    db.open(szDBPath,strVer);
+    rho::String strVer = RhoRuby_getRhoDBVersion(); 
+    db.open(szDBPath,strVer, false);
     return 0;
 }
 
@@ -313,6 +323,11 @@ void* rho_db_get_handle()
     return CSyncThread::getDBAdapter().getDbHandle();
 }
 
+unsigned long rho_sync_get_attrs(int nSrcID)
+{
+    return (VALUE)CSyncThread::getDBAdapter().getAttrMgr().getAttrsBySrc(nSrcID);
+}
+
 void rho_sync_lock()
 {
     rho::db::CDBAdapter& db = rho::sync::CSyncThread::getDBAdapter();
@@ -324,6 +339,41 @@ void rho_sync_unlock()
 {
     rho::db::CDBAdapter& db = rho::sync::CSyncThread::getDBAdapter();
     db.Unlock();
+}
+
+void rho_sync_setobjectnotify_url(const char* szUrl)
+{
+    CSyncNotify::setObjectNotifyUrl(szUrl);
+}
+
+void rho_sync_addobjectnotify(int nSrcID, const char* szObject)
+{
+    CSyncThread::getSyncEngine().getNotify().addObjectNotify(nSrcID, szObject);
+}
+
+void rho_sync_addobjectnotify_bysrcname(const char* szSrcName, const char* szObject)
+{
+    CSyncThread::getSyncEngine().getNotify().addObjectNotify(szSrcName, szObject);
+}
+
+void rho_sync_cleanobjectnotify()
+{
+    CSyncThread::getSyncEngine().getNotify().cleanObjectNotifications();
+}
+
+int rho_sync_get_lastsync_objectcount(int nSrcID)
+{
+    return CSyncThread::getSyncEngine().getNotify().getLastSyncObjectCount(nSrcID);
+}
+
+int rho_sync_get_pagesize()
+{
+    return CSyncThread::getSyncEngine().getSyncPageSize();
+}
+
+void rho_sync_set_pagesize(int nPageSize)
+{
+    return CSyncThread::getSyncEngine().setSyncPageSize(nPageSize);
 }
 
 }

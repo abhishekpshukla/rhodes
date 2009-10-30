@@ -18,7 +18,11 @@
 #import "DateTime.h"
 #import "NativeBar.h"
 #import "BarItem.h"
+#import "WebViewUrl.h"
 #import "RhoDelegate.h"
+#ifdef __IPHONE_3_0
+#import "MapViewController.h"
+#endif
 
 #undef DEFAULT_LOGCATEGORY
 #define DEFAULT_LOGCATEGORY "RhoRunnerAppDelegate"
@@ -36,6 +40,15 @@
 	}
 	NSString* location = [@"http://localhost:8080" stringByAppendingString:[@"/" stringByAppendingPathComponent:url]];
 	return location;
+}
+
+- (void)loadStartPath:(NSString*)location {
+	if (nativeBar.barType == TOOLBAR_TYPE || nativeBar.barType == NOBAR_TYPE) {
+		[webViewController navigateRedirect:location];
+	} else {
+		// Load tab #0 on app load
+		[tabBarDelegate loadTabBarItemFirstPage:(BarItem*)[tabBarDelegate.barItems objectAtIndex:0]];
+	}	
 }
 
 - (void)onServerStarted:(NSString*)data {
@@ -57,31 +70,42 @@
 		location = [self normalizeUrl:(NSString*)data];
 	}
 	
-	// only navigate main webViewController if there is no tabbar
-	if (self.nativeBar.barType == TOOLBAR_TYPE || self.nativeBar.barType == NOBAR_TYPE) {
-		[webViewController navigateRedirect:location];
-	} else {
-		// Load tab #0 on app load
-		[tabBarDelegate loadTabBarItemFirstPage:(BarItem*)[tabBarDelegate.barItems objectAtIndex:0]];
-	}
 	appStarted = true;
+	[self loadStartPath:location];
 }
 
 - (void)onRefreshView {
 	[webViewController refresh];
 }
 
-- (void)onNavigateTo:(NSString *)url {
-	[webViewController navigateRedirect:url];
+- (void)onNavigateTo:(WebViewUrl*) wvUrl {
+	if (self.nativeBar.barType == TABBAR_TYPE) {
+		BarItem* bItem = (BarItem*)[tabBarDelegate.barItems objectAtIndex:wvUrl.webViewIndex];
+		WebViewController* wvController = (WebViewController*)[bItem viewController];
+		[wvController navigateRedirect:wvUrl.url];
+	} else {
+		[webViewController navigateRedirect:wvUrl.url];
+	}
 }
 
-- (void)onExecuteJs:(NSString *)js {
+- (void)onExecuteJs:(JSString *)js {
 	[webViewController executeJs:js];
 }
 
 - (void)onSetViewHomeUrl:(NSString *)url {
 	[webViewController setViewHomeUrl:url];
 }
+
+#ifdef __IPHONE_3_0
+-(void) onCreateMap:(NSMutableArray*)items {
+	MapViewController* map = [[MapViewController alloc] init];
+	[map setParams:[items objectAtIndex:0]];
+	[map setAnnotations:[items objectAtIndex:1]];
+	map.actionTarget = self;
+	map.onNavigate = @selector(onNavigateTo:);
+	[window addSubview:map.view];
+}
+#endif
 
 -(BOOL)startCameraPickerFromViewController:(UIViewController*)controller 
 							 usingDelegate:(id<UINavigationControllerDelegate, UIImagePickerControllerDelegate>)delegateObject 
@@ -160,14 +184,22 @@
 }
 
 - (void)onCreateNativeBar:(NativeBar*)bar {
+	// retain the nativebar so it doesn't get deleted
+	[bar retain];
 	self.nativeBar = bar;
-	if (nativeBar.barType == TABBAR_TYPE) {
+	if (self.nativeBar.barType == TABBAR_TYPE) {
 		tabBarDelegate.tabBar = self.nativeBar;
 		[self startNativeBarFromViewController:webViewController usingDelegate:tabBarDelegate];
-	} else if(nativeBar.barType == TOOLBAR_TYPE) {
+	} else if(self.nativeBar.barType == TOOLBAR_TYPE) {
 		webViewController.toolbar.hidden = NO;
-	} else if(nativeBar.barType == NOBAR_TYPE) {
+		[window sendSubviewToBack:webViewController.webView];
+		[window bringSubviewToFront:webViewController.toolbar];
+		[webViewController.webView sizeToFit];
+	} else if(self.nativeBar.barType == NOBAR_TYPE) {
 		webViewController.toolbar.hidden = YES;
+		[window sendSubviewToBack:webViewController.toolbar];
+		[window bringSubviewToFront:webViewController.webView];
+		[webViewController.webView sizeToFit];
 	}
 }
 
@@ -247,6 +279,21 @@
 	[params release];
 }
 
+- (void)onMapLocation:(NSString*)query {
+	NSURL* url = [NSURL URLWithString:[@"http://maps.google.com/?" stringByAppendingString:query]];
+	[[UIApplication sharedApplication] openURL:url];
+}
+
+- (void)onActiveTab:(NSValue*)val {
+	//TODO: This is a bit weird, but saves us creating another wrapper class
+	int* res = val.pointerValue;
+	if (tabBarDelegate && tabBarDelegate.tabBar) {
+		*res = tabBarDelegate.activeTab;
+	} else {
+		*res = 0;
+	}
+}
+
 #ifdef __IPHONE_3_0
 - (void)processDoSync:(NSDictionary *)userInfo
 {
@@ -298,8 +345,17 @@
 }
 #endif
 
+- (void) showLoadingPage {
+	NSString *filePath = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"apps/app/loading.html"];
+	NSFileManager *fileManager = [NSFileManager defaultManager];
+	if ([fileManager fileExistsAtPath:filePath]) {
+		NSData *data = [fileManager contentsAtPath:filePath];
+		NSString *loadingPage = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+		[webViewController loadHTMLString:loadingPage];
+	}
+}
+
 - (void) doStartUp {
-	//
 	appStarted = false;
 	// Log View
 	logViewController = [[LogViewController alloc] init];
@@ -311,14 +367,16 @@
 	webViewController->actionTarget = self;
 	webViewController->onShowLog = @selector(onShowLog);
 	
+	//TabBar delegate
+	tabBarDelegate = [[TabBarDelegate alloc] init];
+
+	[self showLoadingPage];
+	
 	//Camera delegate
 	pickImageDelegate = [[PickImageDelegate alloc] init];
 	
 	//DateTime delegate
 	dateTimePickerDelegate = [[DateTimePickerDelegate alloc] init];
-	
-	//TabBar delegate
-	tabBarDelegate = [[TabBarDelegate alloc] init];
 	
     //Create local server and start it
     //serverHost = [[ServerHost alloc] init];
@@ -338,9 +396,13 @@
 	serverHost->onVibrate = @selector(onVibrate:);
 	serverHost->onPlayFile = @selector(onPlayFile:);
 	serverHost->onSysCall = @selector(onSysCall:);
+	serverHost->onMapLocation = @selector(onMapLocation:);
+	serverHost->onCreateMap = @selector(onCreateMap:);
+	serverHost->onActiveTab = @selector(onActiveTab:);
     [serverHost start];
 	
 	// Create View
+	webViewController.toolbar.hidden = YES;
 	[window addSubview:webViewController.view];
     [window makeKeyAndVisible];
 	
@@ -359,8 +421,6 @@
 #endif
 
 - (void)applicationDidFinishLaunching:(UIApplication *)application {
-	// Hide the toolbar initially, we will re-draw it if there are no tabs
-	webViewController.toolbar.hidden = YES;
 	[self doStartUp];
 }
 

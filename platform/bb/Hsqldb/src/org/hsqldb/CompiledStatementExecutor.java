@@ -88,7 +88,7 @@ final class CompiledStatementExecutor {
      * @return the result of executing the statement
      * @param cs any valid CompiledStatement
      */
-    Result execute(CompiledStatement cs, Object[] paramValues) {
+    Result execute(CompiledStatement cs, Object[] paramValues, boolean bReportNonUnique) {
 
         Result result = null;
 
@@ -102,6 +102,17 @@ final class CompiledStatementExecutor {
             cs.materializeSubQueries(session);
 
             result = executeImpl(cs);
+        } catch (HsqlException e) {
+        	if ( e.getErrorCode() == -Trace.VIOLATION_OF_UNIQUE_INDEX &&
+        			bReportNonUnique )
+        	{}
+        	else
+        		LOG.ERROR("execute statement failed.", e);
+        	
+            result = new Result(e, cs.sql);
+        } catch (Exception e) {
+        	LOG.ERROR("execute statement failed.", e);
+            result = new Result(e, cs.sql);
         } catch (Throwable t) {
         	LOG.ERROR("execute statement failed.", t);
             result = new Result(t, cs.sql);

@@ -16,6 +16,7 @@ import com.xruby.runtime.lang.RubyConstant;
 import com.xruby.runtime.lang.RubyValue;
 import com.xruby.runtime.lang.RhoSupport;
 import com.rho.net.URI;
+import com.rho.sync.SyncThread;
 import com.rho.*;
 import com.rho.location.GeoLocation;
 
@@ -177,8 +178,9 @@ public class RhoConnection implements IHttpConnection {
 	}
 
 	public int getResponseCode() throws IOException {
-		LOG.TRACE("getResponseCode" + responseCode);
 		processRequest();
+		LOG.TRACE("getResponseCode" + responseCode);
+		
 		return responseCode;
 	}
 
@@ -343,7 +345,7 @@ public class RhoConnection implements IHttpConnection {
 		public boolean isEnd(){ return nStart >= strPath.length(); }
 		public String next(){
 			if (  isEnd() )
-				return "";
+				return null;
 			
 			int nEnd = strPath.indexOf('/',nStart);
 			if ( nEnd < 0 )
@@ -374,6 +376,12 @@ public class RhoConnection implements IHttpConnection {
 
 	void respondOK(){
 		responseCode = HTTP_OK;
+		responseMsg = "Success";
+		contentLength = 0;
+	}
+
+	void respondNotModified(){
+		responseCode = HTTP_NOTMODIFIED;
 		responseMsg = "Success";
 		contentLength = 0;
 	}
@@ -622,7 +630,7 @@ public class RhoConnection implements IHttpConnection {
 		
 		String model = up.next();
 		
-		if ( model.length() == 0 )
+		if ( model == null || model.length() == 0 )
 			return false;
 		
 		if ( checkRhoExtensions(application, model ) )
@@ -636,7 +644,7 @@ public class RhoConnection implements IHttpConnection {
 		
 		String actionid = up.next();
 		String actionnext = up.next();
-		if ( actionid.length() > 0 ){
+		if ( actionid != null && actionid.length() > 0 ){
 			if ( actionid.length() > 2 && 
 				 actionid.charAt(0)=='{' && actionid.charAt(actionid.length()-1)=='}' ){
 				reqHash.setProperty( "id", actionid);
@@ -660,6 +668,10 @@ public class RhoConnection implements IHttpConnection {
 		
 		RubyValue res = RhoRuby.processRequest( reqHash, reqHeaders, resHeaders);
 		processResponse(res);
+		
+		if ( actionid !=null && actionid.length() > 2 && 
+			 actionid.charAt(0)=='{' && actionid.charAt(actionid.length()-1)=='}' )
+			SyncThread.getInstance().addobjectnotify_bysrcname( model, actionid);
 		
 		LOG.INFO("dispatch end");
 		return true;

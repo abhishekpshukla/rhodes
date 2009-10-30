@@ -841,6 +841,14 @@
 				RelativePath="..\..\shared\common\StringConverter.h"
 				>
 			</File>
+			<File
+				RelativePath="..\..\shared\common\Tokenizer.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\..\shared\common\Tokenizer.h"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="logging"
@@ -891,6 +899,22 @@
 			</File>
 			<File
 				RelativePath="..\..\shared\statistic\RhoProfiler.h"
+				>
+			</File>
+		</Filter>
+		<Filter
+			Name="net"
+			>
+			<File
+				RelativePath="..\..\shared\net\inetrequest.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\shared\net\URI.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\..\shared\net\URI.h"
 				>
 			</File>
 		</Filter>

@@ -18,7 +18,7 @@ extern void* rho_db_get_handle();
 
 static VALUE db_allocate(VALUE klass)
 {
-	sqlite3 **db = malloc(sizeof(sqlite3 **));
+	//sqlite3 **db = malloc(sizeof(sqlite3 **));
 	return Data_Wrap_Struct(klass, 0, 0, 0);
 }
 
@@ -42,7 +42,7 @@ static VALUE db_init(int argc, VALUE *argv, VALUE self)
 }
 
 static VALUE db_close(int argc, VALUE *argv, VALUE self){
-	sqlite3 * db = NULL;
+	//sqlite3 * db = NULL;
 	sqlite3 **ppDB = NULL;		
 	int rc = 0;
 	
@@ -57,7 +57,7 @@ static VALUE db_close(int argc, VALUE *argv, VALUE self){
 }
 
 static VALUE db_start_transaction(int argc, VALUE *argv, VALUE self){
-	sqlite3 * db = NULL;
+	//sqlite3 * db = NULL;
 	sqlite3 **ppDB = NULL;		
 	int rc = 0;
 	
@@ -72,7 +72,7 @@ static VALUE db_start_transaction(int argc, VALUE *argv, VALUE self){
 }
 
 static VALUE db_commit(int argc, VALUE *argv, VALUE self){
-	sqlite3 * db = NULL;
+	//sqlite3 * db = NULL;
 	sqlite3 **ppDB = NULL;		
 	int rc = 0;
 	
@@ -87,7 +87,7 @@ static VALUE db_commit(int argc, VALUE *argv, VALUE self){
 }
 
 static VALUE db_rollback(int argc, VALUE *argv, VALUE self){
-	sqlite3 * db = NULL;
+	//sqlite3 * db = NULL;
 	sqlite3 **ppDB = NULL;		
 	int rc = 0;
 	
@@ -117,7 +117,7 @@ static VALUE* getColNames(sqlite3_stmt* statement, int nCount)
 
 static VALUE db_destroy_table(int argc, VALUE *argv, VALUE self)
 {
-	sqlite3 * db = NULL;
+	//sqlite3 * db = NULL;
 	sqlite3 **ppDB = NULL;		
     const char* szTableName = NULL;
     int rc = 0;
@@ -144,8 +144,8 @@ static VALUE db_execute(int argc, VALUE *argv, VALUE self)
 	int nRes = 0;
     char * szErrMsg = 0;
 	
-	if ((argc < 1) || (argc > 1))
-		rb_raise(rb_eArgError, "wrong # of arguments(%d for 1)",argc);
+	if ((argc < 1) || (argc > 2))
+		rb_raise(rb_eArgError, "wrong # of arguments(%d for 2)",argc);
 	
 	Data_Get_Struct(self, sqlite3 *, ppDB);
 	db = (sqlite3 *)rho_db_get_handle();
@@ -154,12 +154,42 @@ static VALUE db_execute(int argc, VALUE *argv, VALUE self)
     RAWTRACE1("db_execute: %s", sql);
 	if ( (nRes = sqlite3_prepare_v2(db, sql, -1, &statement, NULL)) != SQLITE_OK)
     {
-        szErrMsg = sqlite3_errmsg(db);
+        szErrMsg = (char *)sqlite3_errmsg(db);
 
         rb_raise(rb_eArgError, "could not prepare statement: %d; Message: %s",nRes, (szErrMsg?szErrMsg:""));
     }
 
-	while(sqlite3_step(statement) == SQLITE_ROW) {
+    if ( argc > 1 )
+    {
+        int i = 0;
+        VALUE args = argv[1];
+        if ( RARRAY_LEN(args) > 0 && TYPE(RARRAY_PTR(args)[0]) == T_ARRAY )
+            args = RARRAY_PTR(args)[0];
+
+        for( ; i < RARRAY_LEN(args); i++ )
+        {
+            VALUE arg = RARRAY_PTR(args)[i];
+            if (NIL_P(arg))
+            {
+                sqlite3_bind_null(statement, i+1);
+                continue;
+            }
+
+            switch( TYPE(arg) )
+            {
+            case T_STRING:
+                sqlite3_bind_text(statement, i+1, RSTRING_PTR(arg), -1, SQLITE_TRANSIENT);
+                break;
+            case T_FIXNUM:
+            case T_FLOAT:
+            case T_BIGNUM:
+                sqlite3_bind_int64(statement, i+1, NUM2LL(arg));
+                break;
+            }
+        }
+    }
+
+	while( (nRes=sqlite3_step(statement)) == SQLITE_ROW) {
 		int nCount = sqlite3_data_count(statement);
 		int nCol = 0;
 		VALUE hashRec = rb_hash_new();
@@ -178,8 +208,8 @@ static VALUE db_execute(int argc, VALUE *argv, VALUE self)
 					break;
                 case SQLITE_INTEGER:
                 {
-                    int nVal = sqlite3_column_int(statement, nCol);
-                    colValue = INT2NUM(nVal);
+                    sqlite_int64 nVal = sqlite3_column_int64(statement, nCol);
+                    colValue = LL2NUM(nVal);
                     break;
                 }
 				default:{
@@ -195,6 +225,13 @@ static VALUE db_execute(int argc, VALUE *argv, VALUE self)
 		rb_ary_push(arRes, hashRec);
 	}
 	
+    if ( nRes != SQLITE_OK && nRes != SQLITE_ROW && nRes != SQLITE_DONE )
+    {
+        szErrMsg = (char*)sqlite3_errmsg(db);
+
+        rb_raise(rb_eArgError, "could not execute statement: %d; Message: %s",nRes, (szErrMsg?szErrMsg:""));
+    }
+
 	sqlite3_finalize(statement);
 	
     if ( colNames )

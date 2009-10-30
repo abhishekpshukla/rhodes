@@ -213,7 +213,7 @@ extern "C" void perform_webview_refresh() {
 	webview_refresh();
 }
 
-extern "C" void webview_navigate(char* url) {
+extern "C" void webview_navigate(char* url, int index) {
 	_AtlModule.DoViewNavigate(url);
 }
 
@@ -224,6 +224,10 @@ extern "C" char* webview_execute_js(char* js) {
 
 extern "C" void webview_set_menu_items(VALUE argv) {
 //TODO: Implement me!
+}
+
+extern "C" int webview_active_tab() {
+	return 0;
 }
 
 extern "C" char* get_current_location() {
@@ -244,6 +248,10 @@ extern "C" void choose_datetime(char* callback, char* title, long initial_time, 
 
 extern "C" void create_nativebar(int bar_type, int nparams, char** params) {
 	//TODO: Implement me!
+}
+
+extern "C" void mapview_create(int nparams, char** params, int nannotations, char** annotation) {
+    //TODO: mapview_create
 }
 
 /*BOOL EnumRhodesWindowsProc(HWND hwnd,LPARAM lParam)

@@ -10,13 +10,14 @@ public class DBAdapter extends RubyBasic {
 
 	private static DBAdapter m_Instance;
 	
-	private IDBCallback m_dbCallback;
 	private IDBStorage m_dbStorage;
 	private boolean m_bIsOpen = false;
 	private String  m_strDBPath;
 	private String  m_strDBVerPath;
+	private DBAttrManager m_attrMgr = new DBAttrManager();
 	
     Mutex m_mxDB = new Mutex();
+    boolean m_bInsideTransaction=false;
     boolean m_bUnlockDB = false;
 	
 	DBAdapter(RubyClass c) {
@@ -36,63 +37,63 @@ public class DBAdapter extends RubyBasic {
 		return m_Instance;
 	}
 	
-	public void setDbCallback(IDBCallback callback){
-		m_dbCallback = callback;
-		
-		m_dbStorage.setDbCallback(callback);
+	public DBAttrManager getAttrMgr()
+	{ 
+		return m_attrMgr; 
 	}
 	
 	public IDBResult executeSQL(String strStatement, Object[] values)throws DBException{
 		LOG.TRACE("executeSQL: " + strStatement);
 		
-		return m_dbStorage.executeSQL(strStatement,values);
+		return m_dbStorage.executeSQL(strStatement,values,false);
 	}
 	public IDBResult executeSQL(String strStatement)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
-		
 		return executeSQL(strStatement,null);
 	}
 	public IDBResult executeSQL(String strStatement, Object arg1)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
-		
 		Object[] values = {arg1};
 		return executeSQL(strStatement,values);
 	}
 	public IDBResult executeSQL(String strStatement, int arg1)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
-		
 		Object[] values = { new Integer(arg1)};
 		return executeSQL(strStatement,values);
 	}
 	public IDBResult executeSQL(String strStatement, long arg1)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
-		
 		Object[] values = { new Long(arg1)};
 		return executeSQL(strStatement,values);
 	}
 	
 	public IDBResult executeSQL(String strStatement, Object arg1, Object arg2)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
-		
 		Object[] values = {arg1,arg2};
 		return executeSQL(strStatement,values);
 	}
 	
 	public IDBResult executeSQL(String strStatement, Object arg1, Object arg2, Object arg3)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
-		
 		Object[] values = {arg1,arg2,arg3};
 		return executeSQL(strStatement,values);
 	}
+	public IDBResult executeSQL(String strStatement, Object arg1, Object arg2, Object arg3, Object arg4)throws DBException{
+		Object[] values = {arg1,arg2,arg3,arg4};
+		return executeSQL(strStatement,values);
+	}
+	
+	public IDBResult executeSQL(String strStatement, Object arg1, Object arg2, Object arg3, Object arg4, Object arg5)throws DBException{
+		Object[] values = {arg1,arg2,arg3,arg4,arg5};
+		return executeSQL(strStatement,values);
+	}
 	public IDBResult executeSQL(String strStatement, Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
-		
 		Object[] values = {arg1,arg2,arg3,arg4,arg5,arg6};
 		return executeSQL(strStatement,values);
 	}
-	public IDBResult executeSQL(String strStatement, Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7)throws DBException{
-		LOG.TRACE("executeSQL: " + strStatement);
+	
+	public IDBResult executeSQLReportNonUnique(String strStatement, Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6)throws DBException{
+		LOG.TRACE("executeSQLReportNonUnique: " + strStatement);
 		
+		Object[] values = {arg1,arg2,arg3,arg4,arg5,arg6};
+		return m_dbStorage.executeSQL(strStatement,values, true);
+	}
+	
+	public IDBResult executeSQL(String strStatement, Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7)throws DBException{
 		Object[] values = {arg1,arg2,arg3,arg4,arg5,arg6,arg7};
 		return executeSQL(strStatement,values);
 	}
@@ -101,6 +102,7 @@ public class DBAdapter extends RubyBasic {
 	public void setUnlockDB(boolean b){ m_bUnlockDB = b; }
 	public void Lock(){ m_mxDB.Lock(); }
 	public void Unlock(){ setUnlockDB(false); m_mxDB.Unlock(); }
+    public boolean isInsideTransaction(){ return m_bInsideTransaction; }
 	
 	public static IDBResult createResult(){
 		return getInstance().m_dbStorage.createResult();
@@ -160,14 +162,22 @@ public class DBAdapter extends RubyBasic {
 		"port VARCHAR(10) default NULL,"+
 		"last_sync_success VARCHAR(100) default NULL);"+
 		"CREATE TABLE object_values ("+
-		" id INTEGER default NULL,"+
-		" token varchar(30) default NULL,"+
+		" id INTEGER PRIMARY KEY,"+
 		" source_id int default NULL,"+
 		" attrib varchar(255) default NULL,"+
 		" object varchar(255) default NULL,"+
 		" value varchar default NULL,"+
-		" update_type varchar(255) default NULL,"+
 		" attrib_type varchar(255) default NULL);"+
+		"CREATE TABLE changed_values ("+
+		" id INTEGER default NULL,"+
+		" source_id int default NULL,"+
+		" attrib varchar(255) default NULL,"+
+		" object varchar(255) default NULL,"+
+		" value varchar default NULL,"+
+		" attrib_type varchar(255) default NULL," +
+		" update_type varchar(255) default NULL, " +
+		" sent int default 0," +
+		" main_id INTEGER default 0 );"+
 		"CREATE TABLE sources ("+
 		//"id INTEGER PRIMARY KEY,"+
 		"source_id int PRIMARY KEY,"+
@@ -184,22 +194,69 @@ public class DBAdapter extends RubyBasic {
 		//"CREATE INDEX by_attrib_obj_utype on object_values (attrib,object,update_type);"+
 		//"CREATE INDEX by_attrib_utype on object_values (attrib,update_type);"+
 		//"CREATE INDEX by_src_type ON object_values (source_id, attrib_type, object);"+
+		"CREATE INDEX by_src_id ON object_values (source_id);"+
+		"CREATE UNIQUE INDEX by_src_object ON object_values (object, attrib, source_id);"+
+		"CREATE INDEX by_src_value ON object_values (attrib, source_id, value);";//+
+		//"CREATE INDEX by_id ON object_values (id);"; //for delete operation
+		//"CREATE INDEX by_src_object ON object_values (source_id, object);"+
+		//"CREATE INDEX by_src_up_value ON object_values (source_id, update_type, value);";
+		//"CREATE INDEX by_type ON object_values (attrib_type)";
+    }
+
+    /*private String getSqlScript(){
+    	//TODO: read script from jar
+		return "CREATE TABLE client_info ("+
+		"client_id VARCHAR(255) PRIMARY KEY,"+
+		"token VARCHAR(255) default NULL,"+
+		"token_sent int default 0,"+
+		"reset int default 0,"+
+		"port VARCHAR(10) default NULL,"+
+		"last_sync_success VARCHAR(100) default NULL);"+
+		"CREATE TABLE object_values ("+
+		" id INTEGER PRIMARY KEY,"+
+		" source_id int default NULL,"+
+		" attrib varchar(255) default NULL,"+
+		" object varchar(255) default NULL,"+
+		" value varchar default NULL,"+
+		" attrib_type varchar(32) default NULL);"+
+		"CREATE TABLE changed_values ("+
+		" id INTEGER PRIMARY KEY,"+
+		" update_type varchar(255) default NULL);"+
+		"CREATE TABLE sources ("+
+		//"id INTEGER PRIMARY KEY,"+
+		"source_id int PRIMARY KEY,"+
+		"name varchar(255) default NULL,"+
+		"token varchar(32) default NULL,"+
+		"source_url VARCHAR(255) default NULL,"+
+		"session VARCHAR(255) default NULL,"+
+		"last_updated int default 0,"+
+		"last_inserted_size int default 0,"+
+		"last_deleted_size int default 0,"+
+		"last_sync_duration int default 0,"+
+		"last_sync_success int default 0," +
+		"source_attribs varchar default NULL);"+
+		//"CREATE INDEX by_attrib_obj_utype on object_values (attrib,object,update_type);"+
+		//"CREATE INDEX by_attrib_utype on object_values (attrib,update_type);"+
+		//"CREATE INDEX by_src_type ON object_values (source_id, attrib_type, object);"+
 		"CREATE INDEX by_src_update ON object_values (source_id, update_type);"+
 		"CREATE INDEX by_id ON object_values (id);"; //for delete operation
 		//"CREATE INDEX by_src_object ON object_values (source_id, object);"+
 		//"CREATE INDEX by_src_up_value ON object_values (source_id, update_type, value);";
 		//"CREATE INDEX by_type ON object_values (attrib_type)";
-    }
+    }*/
     
     public void startTransaction()throws DBException
     {
     	Lock();
+    	m_bInsideTransaction=true;    	
     	m_dbStorage.startTransaction();
     }
     
     public void commit()throws DBException
     {
+    	getAttrMgr().save(this);
     	m_dbStorage.commit();
+    	m_bInsideTransaction=false;
     	Unlock();
     }
     public void endTransaction()throws DBException
@@ -223,15 +280,20 @@ public class DBAdapter extends RubyBasic {
     
     DBVersion readDBVersion()throws Exception
 	{
-        SimpleFile file = RhoClassFactory.createFile();
-        file.open(m_strDBVerPath, true, true);
-        byte buf[] = new byte[20];
-		int len = file.read(0, buf);
-		file.close();
-		String strFullVer = "";
-		if ( len > 0 )
-			strFullVer = new String(buf,0,len);
-		
+    	String strFullVer = "";
+    	try {
+	    	IRAFile file = RhoClassFactory.createRAFile();
+	    	file.open(m_strDBVerPath);
+	        byte buf[] = new byte[20];
+	        int len = file.read(buf, 0, buf.length);
+			file.close();
+			if ( len > 0 )
+				strFullVer = new String(buf,0,len);
+    	}
+    	catch (Exception e) {
+    		LOG.TRACE("readDBVersion: Exception: " + e.getMessage());
+    	}
+    	
 		if ( strFullVer.length() == 0 )
 			return new DBVersion();
 		
@@ -244,10 +306,11 @@ public class DBAdapter extends RubyBasic {
 	
 	void writeDBVersion(DBVersion ver)throws Exception
 	{
-        SimpleFile file = RhoClassFactory.createFile();
-        file.open(m_strDBVerPath, false, false);
+		IRAFile file = RhoClassFactory.createRAFile();
+		file.open(m_strDBVerPath, "rw");
         String strFullVer = ver.m_strRhoVer + ";" + ver.m_strAppVer;
-        file.write(0, strFullVer.getBytes() );
+        byte[] buf = strFullVer.getBytes();
+        file.write(buf, 0, buf.length);
         file.close();
 	}
     
@@ -295,6 +358,10 @@ public class DBAdapter extends RubyBasic {
 		
 		//executeSQL("CREATE INDEX by_src ON object_values (source_id)", null);
 		m_bIsOpen = true;
+		
+		getAttrMgr().load(this);
+		
+		m_dbStorage.setDbCallback(new DBCallback(this));
     }
     
 	private String createInsertStatement(IDBResult res, String tableName)
@@ -327,16 +394,31 @@ public class DBAdapter extends RubyBasic {
 		
 		IDBStorage db = null;
 		try{
+		    getAttrMgr().reset(this);
+			
 			String strTable = v.toStr();
 			
 			String dbName = getNameNoExt(m_strDBPath);
 			String dbNewName  = dbName + "new";
 			
-			SimpleFile fs = RhoClassFactory.createFile();
+			IFileAccess fs = RhoClassFactory.createFileAccess();
 			
-		    fs.delete(dbNewName + ".data");
-		    fs.delete(dbNewName + ".script");
-	
+			String dbNameData = dbName + ".data";
+		    String dbNewNameData = dbNewName + ".data";
+		    String dbNameScript = dbName + ".script";
+		    String dbNewNameScript = dbNewName + ".script";
+		    String dbNameJournal = dbName + ".journal";
+		    String dbNewNameJournal = dbNewName + ".journal";
+		    
+			//LOG.TRACE("DBAdapter: " + dbNewNameDate + ": " + (fs.exists(dbNewNameData) ? "" : "not ") + "exists");
+		    fs.delete(dbNewNameData);
+		    //LOG.TRACE("DBAdapter: " + dbNewNameScript + ": " + (fs.exists(dbNewNameScript) ? "" : "not ") + "exists");
+		    fs.delete(dbNewNameScript);
+		    //LOG.TRACE("DBAdapter: " + dbNewNameJournal + ": " + (fs.exists(dbNewNameJournal) ? "" : "not ") + "exists");
+		    fs.delete(dbNewNameJournal);
+		    
+		    LOG.TRACE("1. Size of " + dbNameData + ": " + fs.size(dbNameData));
+		    
 		    db = RhoClassFactory.createDBStorage();	    
 			db.open( dbNewName, getSqlScript() );
 			
@@ -358,7 +440,7 @@ public class DBAdapter extends RubyBasic {
 			    	if ( strInsert.length() == 0 )
 			    		strInsert = createInsertStatement(res, tableName);
 			    	
-			    	db.executeSQL(strInsert, res.getCurData() );
+			    	db.executeSQL(strInsert, res.getCurData(), false );
 			    }
 			}
 			
@@ -369,12 +451,27 @@ public class DBAdapter extends RubyBasic {
 		    m_dbStorage = null;
 		    m_bIsOpen = false;
 		    
-		    fs.renameOverwrite(dbNewName + ".data", dbName+".data");
-		    fs.renameOverwrite(dbNewName + ".script", dbName+".script");
+		    LOG.TRACE("2. Size of " + dbNewNameData + ": " + fs.size(dbNewNameData));
+		    
+		    fs.delete(dbNameJournal);
+		    
+			String fName = makeBlobFolderName();
+			RhoClassFactory.createFile().delete(fName);
+			DBAdapter.makeBlobFolderName(); //Create folder back
+		    
+		    fs.renameOverwrite(dbNewNameData, dbNameData);
+		    fs.renameOverwrite(dbNewNameScript, dbNameScript);
+		    
+		    LOG.TRACE("3. Size of " + dbNameData + ": " + fs.size(dbNameData));
 		    
 		    m_dbStorage = RhoClassFactory.createDBStorage();
 			m_dbStorage.open(m_strDBPath, getSqlScript() );
 			m_bIsOpen = true;
+			
+			getAttrMgr().load(this);
+			
+			m_dbStorage.setDbCallback(new DBCallback(this));
+			
 		}catch(Exception e)
 		{
     		LOG.ERROR("execute failed.", e);
@@ -406,10 +503,12 @@ public class DBAdapter extends RubyBasic {
     
     public void rollback()throws DBException
     {
+    	m_dbStorage.rollback();
+    	m_bInsideTransaction=false;
+    	
     	Unlock();
-    	throw new DBException("Not implemented");
     }
-    
+/*    
     public RubyValue rb_execute(RubyValue v) 
     {
     	RubyArray res = new RubyArray(); 
@@ -432,8 +531,51 @@ public class DBAdapter extends RubyBasic {
 		}
     	
         return res;
+    }*/
+
+    public RubyValue rb_execute(RubyValue v, RubyValue arg) 
+    {
+    	RubyArray res = new RubyArray(); 
+    	try{
+    		Object[] values = null;
+    		if ( arg != null )
+    		{
+	    		RubyArray args1 = arg.toAry();
+	    		RubyArray args = args1;
+	    		if ( args.size() > 0 && args.get(0) instanceof RubyArray )
+	    			args = (RubyArray)args.get(0);
+	    		
+	    		values = new Object[args.size()];
+	    		for ( int i = 0; i < args.size(); i++ )
+	    		{
+	    			RubyValue val = args.get(i);
+	    			if ( val instanceof RubyFixnum )
+	    				values[i] = new Long( ((RubyFixnum)val).toLong() );
+	    			else
+	    				values[i] = val.toString();
+	    		}
+    		}
+    		
+    		IDBResult rows = executeSQL(v.toStr(), values);
+    		RubyString[] colNames = getColNames(rows);
+    		
+    		for( ; !rows.isEnd(); rows.next() )
+    		{
+    			RubyHash row = ObjectFactory.createHash();
+    			for ( int nCol = 0; nCol < rows.getColCount(); nCol ++ )
+    				row.add( colNames[nCol], rows.getRubyValueByIdx(nCol) );
+    			
+    			res.add( row );
+    		}
+		}catch(Exception e)
+		{
+    		LOG.ERROR("execute failed.", e);
+			throw (e instanceof RubyException ? (RubyException)e : new RubyException(e.getMessage()));
+		}
+    	
+        return res;
     }
-	
+    
     //@RubyAllocMethod
     private static RubyValue alloc(RubyValue receiver) {
     	return getInstance();
@@ -493,7 +635,6 @@ public class DBAdapter extends RubyBasic {
 		    	m_dbStorage = null;
     		}
     		
-	    	m_dbCallback = null;
     	}catch( Exception e ){
     		LOG.ERROR("close failed.", e);
     		throw (e instanceof RubyException ? (RubyException)e : new RubyException(e.getMessage()));
@@ -517,10 +658,12 @@ public class DBAdapter extends RubyBasic {
 			protected RubyValue run(RubyValue receiver, RubyBlock block ){
 				return ((DBAdapter)receiver).rb_close();}
 		});
-		klass.defineMethod( "execute", new RubyOneArgMethod(){ 
-			protected RubyValue run(RubyValue receiver, RubyValue arg, RubyBlock block ){
-				return ((DBAdapter)receiver).rb_execute(arg);}
+		klass.defineMethod( "execute", new RubyVarArgMethod(){ 
+			protected RubyValue run(RubyValue receiver, RubyArray args, RubyBlock block ){
+				return ((DBAdapter)receiver).rb_execute(args.get(0), 
+						(args.size() > 1 ? args.get(1):null));}
 		});
+		
 		klass.defineMethod( "start_transaction", new RubyNoArgMethod(){ 
 			protected RubyValue run(RubyValue receiver, RubyBlock block ){
 				return ((DBAdapter)receiver).rb_start_transaction();}
@@ -539,4 +682,75 @@ public class DBAdapter extends RubyBasic {
 		});
 		
 	}
+	
+	public static class DBCallback implements IDBCallback
+	{
+		private DBAdapter m_db;
+		DBCallback(DBAdapter db){ m_db = db; }
+		/*public void OnDeleteAll() {
+			OnDeleteAllFromTable("object_values");
+		}
+		
+		public void OnDeleteAllFromTable(String tableName) {
+			if ( !tableName.equals("object_values") )
+				return;
+
+			try{
+				String fName = DBAdapter.makeBlobFolderName();
+				RhoClassFactory.createFile().delete(fName);
+				DBAdapter.makeBlobFolderName(); //Create folder back
+			}catch(Exception exc){
+				LOG.ERROR("DBCallback.OnDeleteAllFromTable: Error delete files from table: " + tableName, exc);				
+			}
+		}*/
+
+		public void OnInsertIntoTable(String tableName, IDBResult rows2Insert)
+		{
+			if ( !tableName.equalsIgnoreCase("object_values") )
+				return;
+
+			for( ; !rows2Insert.isEnd(); rows2Insert.next() )
+			{
+				int nSrcID = rows2Insert.getIntByIdx(1);
+				String name = rows2Insert.getStringByIdx(2);
+				m_db.getAttrMgr().add(nSrcID, name);
+			}
+			
+		}
+		
+		public void OnDeleteFromTable(String tableName, IDBResult rows2Delete) 
+		{
+			if ( !tableName.equalsIgnoreCase("object_values") )
+				return;
+			
+			for( ; !rows2Delete.isEnd(); rows2Delete.next() )
+			{
+				int nSrcID = rows2Delete.getIntByIdx(1);
+				String attrib = rows2Delete.getStringByIdx(2);
+				m_db.getAttrMgr().remove(nSrcID, attrib);
+				
+				String attrib_type = rows2Delete.getStringByIdx(5);
+				if ( !attrib_type.equals("blob.file") )
+					continue;
+
+				String url = rows2Delete.getStringByIdx(4);
+				if ( url == null || url.length() == 0 )
+					continue;
+				
+				try{
+				    SimpleFile oFile = RhoClassFactory.createFile();
+				    
+			        String strFilePath = oFile.getDirPath("");
+			        strFilePath += url;
+				    
+				    oFile.delete(strFilePath);
+				}catch(Exception exc){
+					LOG.ERROR("DBCallback.OnDeleteFromTable: Error delete file: " + url, exc);				
+				}
+				
+			}
+		}
+		
+	}
+	
 }

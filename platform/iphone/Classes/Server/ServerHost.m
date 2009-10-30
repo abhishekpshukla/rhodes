@@ -23,9 +23,11 @@
 #include "logging/RhoLogConf.h"
 #include "sync/syncthread.h"
 #include "JSString.h"
+#import "WebViewUrl.h"
 #import "ParamsWrapper.h"
 #import "DateTime.h"
 #import "NativeBar.h"
+#import "MapViewController.h"
 
 #import "logging/RhoLog.h"
 #undef DEFAULT_LOGCATEGORY
@@ -74,7 +76,7 @@ static ServerHost* sharedSH = nil;
 
 @synthesize actionTarget, onStartFailure, onStartSuccess, onRefreshView, onNavigateTo, onExecuteJs; 
 @synthesize onSetViewHomeUrl, onSetViewOptionsUrl, onTakePicture, onChoosePicture, onChooseDateTime, onCreateNativeBar;
-@synthesize onShowPopup, onVibrate, onPlayFile, onSysCall;
+@synthesize onShowPopup, onVibrate, onPlayFile, onSysCall, onMapLocation, onCreateMap, onActiveTab;
 
 - (void)serverStarted:(NSString*)data {
 	if(actionTarget && [actionTarget respondsToSelector:onStartSuccess]) {
@@ -96,9 +98,9 @@ static ServerHost* sharedSH = nil;
 	}
 }
 
-- (void)navigateTo:(NSString*) url {
+- (void)navigateTo:(WebViewUrl*) wvUrl {
 	if(actionTarget && [actionTarget respondsToSelector:onNavigateTo]) {
-		[actionTarget performSelectorOnMainThread:onNavigateTo withObject:url waitUntilDone:NO];
+		[actionTarget performSelectorOnMainThread:onNavigateTo withObject:wvUrl waitUntilDone:NO];
 	}
 }
 
@@ -178,6 +180,28 @@ static ServerHost* sharedSH = nil;
 	}
 }
 
+- (void)mapLocation:(NSString*) query {
+	if(actionTarget && [actionTarget respondsToSelector:onMapLocation]) {
+		[actionTarget performSelectorOnMainThread:onMapLocation withObject:query waitUntilDone:NO];
+	}
+}
+
+- (void)createMap:(NSMutableArray*)items {
+	if(actionTarget && [actionTarget respondsToSelector:onCreateMap]) {
+		[actionTarget performSelectorOnMainThread:onCreateMap withObject:items waitUntilDone:NO];
+	}
+}
+
+- (int)activeTab {
+	int retval = 0;
+	if(actionTarget && [actionTarget respondsToSelector:onActiveTab]) {
+		NSValue* result = [NSValue valueWithPointer: &retval];
+		if (!result) return 0;
+		[actionTarget performSelectorOnMainThread:onActiveTab withObject:result waitUntilDone:YES];
+	}
+	return retval;
+}
+
 - (void)sysCall:(PARAMS_WRAPPER*)params {
 }
 
@@ -211,11 +235,13 @@ static ServerHost* sharedSH = nil;
     ServerRef server = ServerCreate(NULL, AcceptConnection, &c);
 	if (server != NULL && ServerConnect(server, NULL, kServiceType, 8080)) {
 		RAWLOG_INFO("HTTP Server started and ready");
-		[self performSelectorOnMainThread:@selector(serverStarted:) 
-							   withObject:homeUrl waitUntilDone:NO];
 		
 		RAWLOG_INFO("Create Sync");
 		rho_sync_create();
+		RhoRubyInitApp();
+		
+		[self performSelectorOnMainThread:@selector(serverStarted:) 
+							   withObject:homeUrl waitUntilDone:NO];
 		
         [[NSRunLoop currentRunLoop] run];
         RAWLOG_INFO("Invalidating local server");
@@ -256,7 +282,6 @@ extern const char* RhoGetRootPath();
 	//[self initializeDatabaseConn];
 	// Startup the sync engine thread
 	//start_sync_engine(database);
-	
 	
 	// Start server thread	
     [NSThread detachNewThreadSelector:@selector(ServerHostThreadRoutine:)
@@ -334,8 +359,11 @@ void webview_refresh() {
 	[[ServerHost sharedInstance] refreshView];
 }
 
-void webview_navigate(char* url) {
-	[[ServerHost sharedInstance] navigateTo:[NSString stringWithCString:url]];
+void webview_navigate(char* url, int index) {
+	WebViewUrl *webViewUrl = [[[WebViewUrl alloc] init] autorelease];
+	webViewUrl.url = [NSString stringWithUTF8String:url];
+	webViewUrl.webViewIndex = index;
+	[[ServerHost sharedInstance] navigateTo:webViewUrl];
 }
 
 char* webview_execute_js(char* js) {
@@ -397,6 +425,21 @@ void choose_datetime(char* callback, char* title, long initial_time, int format,
 										   data:[NSString stringWithCString:data]];
 }
 
+void _rho_map_location(char* query) {
+	[[ServerHost sharedInstance] mapLocation:[NSString stringWithCString:query]];
+}
+
+void mapview_create(int nparams, char** params, int nannotations, char** annotation) {
+#ifdef __IPHONE_3_0	
+	NSMutableArray *settings = parse_settings(nparams, params);
+	NSMutableArray *annotations = parse_annotations(nannotations,annotation);
+	NSMutableArray *items = [NSMutableArray arrayWithCapacity:2];
+	[items addObject:settings];
+	[items addObject:annotations];
+	[[ServerHost sharedInstance] createMap:items];
+#endif	
+}
+
 void _rho_ext_syscall(PARAMS_WRAPPER* params) {
 	[[ServerHost sharedInstance] doSysCall:params];
 }
@@ -413,4 +456,8 @@ void create_nativebar(int bar_type, int nparams, char** params) {
 		}
 	}
 	[[ServerHost sharedInstance] createNativeBar:bar_type dataArray:items];
+}
+
+int webview_active_tab() {
+	return [[ServerHost sharedInstance] activeTab];
 }

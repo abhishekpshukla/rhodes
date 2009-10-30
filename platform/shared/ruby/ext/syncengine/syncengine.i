@@ -6,7 +6,7 @@
 	#define dosync_source rho_sync_doSyncSource
 	extern void rho_sync_doSyncSource(int source_id,int show_status_popup);
 	#define dosearch_source rho_sync_doSearchSource
-	extern void rho_sync_doSearchSource(int source_id, const char *from, const char *params);
+	extern void rho_sync_doSearchSource(int source_id, const char *from, const char *params, int sync_changes, int nProgressStep);
 	#define dosync rho_sync_doSyncAllSources
 	extern void rho_sync_lock();
 	#define lock_sync_mutex rho_sync_lock
@@ -28,6 +28,25 @@
 	#define set_pollinterval rho_sync_set_pollinterval
 	extern void rho_sync_set_syncserver(char* syncserver);
 	#define set_syncserver rho_sync_set_syncserver
+	extern VALUE rho_sync_get_attrs(int source_id);
+	#define get_src_attrs rho_sync_get_attrs
+	
+    extern void  rho_sync_setobjectnotify_url(const char* szUrl);
+    #define set_objectnotify_url rho_sync_setobjectnotify_url
+    extern void  rho_sync_addobjectnotify(int nSrcID, const char* szObject);
+    #define add_objectnotify rho_sync_addobjectnotify
+    extern void  rho_sync_cleanobjectnotify();
+    #define clean_objectnotify rho_sync_cleanobjectnotify
+
+    extern int  rho_sync_get_lastsync_objectcount(int nSrcID);
+    #define get_lastsync_objectcount rho_sync_get_lastsync_objectcount
+
+    extern int  rho_sync_get_pagesize();
+    #define get_pagesize rho_sync_get_pagesize
+
+    extern void  rho_sync_set_pagesize(int pagesize);
+    #define set_pagesize rho_sync_set_pagesize
+	
 	#if !defined(bool)
 	#define bool int
 	#define true  1
@@ -40,7 +59,7 @@
 }
 extern void dosync(bool show_status_popup);
 extern void dosync_source(int source_id, bool show_status_popup);
-extern void dosearch_source(int source_id, const char *from, const char *params);
+extern void dosearch_source(int source_id, const char *from, const char *params, bool sync_changes, int nProgressStep);
 extern void lock_sync_mutex();
 extern void unlock_sync_mutex();
 extern void login(const char *login, const char *password, const char* callback);
@@ -51,3 +70,10 @@ extern void set_notification(int source_id, const char *url, char* params);
 extern void clear_notification(int source_id);
 extern void set_pollinterval(int interval);
 extern void set_syncserver(char* syncserver);
+extern VALUE get_src_attrs(int source_id);
+extern void  set_objectnotify_url(const char* szUrl);
+extern void  add_objectnotify(int nSrcID, const char* szObject);
+extern void  clean_objectnotify();
+extern int   get_lastsync_objectcount(int nSrcID);
+extern int   get_pagesize();
+extern void  set_pagesize(int pagesize);

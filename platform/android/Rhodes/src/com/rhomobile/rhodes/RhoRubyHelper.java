@@ -3,7 +3,10 @@ package com.rhomobile.rhodes;
 import android.content.Context;
 import android.telephony.*; 
 
+import com.rho.IFileAccess;
+import com.rho.IRAFile;
 import com.rho.IRhoRubyHelper;
+import com.rho.RhoConf;
 import com.rho.db.IDBStorage;
 import com.rhomobile.rhodes.camera.Camera;
 import com.rhomobile.rhodes.datetime.DateTimePicker;
@@ -30,6 +33,7 @@ public class RhoRubyHelper implements IRhoRubyHelper {
 		RhoPhonebook.initMethods(RubyRuntime.PhonebookClass);
 		Camera.initMethods(RubyRuntime.CameraClass);
 		WebView.initMethods(RubyRuntime.WebViewClass);
+		RhoConf.initMethods(RubyRuntime.RhoConfClass);
 		DateTimePicker.initMethods(RubyRuntime.DateTimePickerClass);
 		RingtoneManager.initMethods(RubyRuntime.RingtoneManagerClass);
 		NativeBar.initMethods(RubyRuntime.NativeBarClass);
@@ -107,6 +111,14 @@ public class RhoRubyHelper implements IRhoRubyHelper {
 
 	public IDBStorage createDBStorage() {
 		return new DBStorage();
+	}
+
+	public IFileAccess createFileAccess() {
+		return new FileAccess();
+	}
+
+	public IRAFile createRAFile() {
+		return new RAFile();
 	}
 
 }

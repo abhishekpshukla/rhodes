@@ -1,13 +1,9 @@
 env:
   app: C:/rhodes-app
-  appname: Rhodes
-  version: 1.2.0
-  vendor: rhomobile
-  bbver: 4.6
-  applog: rholog.txt
   paths:
     java: C:/Program Files/Java/jdk1.6.0_11/bin
     android: C:/android-sdk-windows-1.5_r2
+    cabwiz: C:/Program Files/Windows Mobile 6 SDK/Tools/CabWiz
     4.6:
       jde: C:/Program Files/Research In Motion/BlackBerry JDE 4.6.0
       mds: C:/Program Files/Research In Motion/BlackBerry JDE 4.6.0/MDS
@@ -16,9 +12,6 @@ env:
       jde: C:/Program Files/Research In Motion/BlackBerry JDE 4.2.0 
       mds: C:/Program Files/Research In Motion/BlackBerry Email and MDS Services Simulators 4.1.2/MDS
       sim: 8100
-  iphone:
-    configuration: Debug
-    sdk: iphonesimulator2.2.1
 build:
   bbpath: platform/bb
   wmpath: platform/wm
@@ -27,5 +20,9 @@ build:
   symbianpath: platform/symbian
   bb:
   bbsignpwd: "somepasswordhere"
-
+excludedirs:
+  bb:
+    - public/js/iui
+    - public/js/jquery*
+    - public/js/prototype*
 

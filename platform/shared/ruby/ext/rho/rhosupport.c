@@ -184,7 +184,7 @@ static VALUE find_file(VALUE fname)
     }else{
         int i = 0;
         VALUE load_path = GET_VM()->load_path;
-        VALUE dir;
+        //VALUE dir;
         fname = checkRhoBundleInPath(fname);
 
         //TODO: support document relative require in case of multiple apps
@@ -314,13 +314,22 @@ VALUE RhoPreparePath(VALUE path){
 static void Init_RhoLog();
 static void Init_RhoBlobs();
 
+static VALUE
+rb_obj_rhom_init(VALUE obj, VALUE iv)
+{
+    //TODO: if render will slow implement this function to fasten rhom member access(see BB)
+    return Qnil;
+}
+
 void Init_RhoSupport()
 {
 	rb_define_global_function("require", rb_require_compiled, 1);
 	rb_define_global_function("eval_compiled_file", rb_f_eval_compiled, -1);
 	rb_define_global_function("__rhoGetCurrentDir", __rhoGetCurrentDir, 0);
 	rb_define_global_function("load", rb_require_compiled, 1);
-	
+
+    rb_define_method(rb_mKernel, "rhom_init", rb_obj_rhom_init, 1);	
+
 	Init_RhoLog();
 	Init_RhoBlobs();
 }
@@ -329,6 +338,8 @@ static void Init_RhoBlobs()
 {
   VALUE path = __rhoGetCurrentDir();
   rb_funcall(path, rb_intern("concat"), 1, rb_str_new2(RhoGetRelativeBlobsPath()));
+
+  RAWLOG_INFO1("Init_RhoBlobs: %s", RSTRING_PTR(path) );
 
   if ( rb_funcall(rb_cDir, rb_intern("exist?"), 1, path)==Qfalse )
     rb_funcall(rb_cDir, rb_intern("mkdir"), 1, path);
@@ -402,7 +413,7 @@ int rhoRubyFPrintf(FILE *file, const char *format, ...){
 static VALUE rb_RhoLogClass;
 static void Init_RhoLog(){
 
-    VALUE appLog, appErrLog;
+    VALUE appLog; //, appErrLog;
 
     rb_RhoLogClass = rb_define_class("RhoLog", rb_cObject);
     rb_define_method(rb_RhoLogClass, "write", rb_RhoLogWrite, 1);
@@ -423,8 +434,8 @@ static void Init_RhoLog2()
     stdioPath = rb_funcall(rb_cIO, rb_intern("read"), 1, path);
     if ( stdioPath != 0 && stdioPath != Qnil && RSTRING_LEN(stdioPath)>0 )
     {
-      char* szPath = RSTRING_PTR(stdioPath);
-      int len = RSTRING_LEN(stdioPath);
+      //char* szPath = RSTRING_PTR(stdioPath);
+      //int len = RSTRING_LEN(stdioPath);
 #if defined(WIN32)
 	  freopen( RSTRING_PTR(stdioPath), "w", stdout );
 #endif

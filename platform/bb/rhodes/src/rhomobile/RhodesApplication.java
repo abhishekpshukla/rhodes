@@ -29,13 +29,7 @@ import net.rim.device.api.system.KeyListener;
 import net.rim.device.api.system.SystemListener;
 //import javax.microedition.io.file.FileSystemListener;
 import net.rim.device.api.system.TrackwheelListener;
-import net.rim.device.api.ui.ContextMenu;
-import net.rim.device.api.ui.Field;
-import net.rim.device.api.ui.FieldChangeListener;
-import net.rim.device.api.ui.Graphics;
-import net.rim.device.api.ui.Keypad;
-import net.rim.device.api.ui.MenuItem;
-import net.rim.device.api.ui.UiApplication;
+import net.rim.device.api.ui.*;
 import net.rim.device.api.ui.component.Dialog;
 import net.rim.device.api.ui.component.Menu;
 import net.rim.device.api.ui.component.Status;
@@ -53,13 +47,18 @@ import com.rho.Mutex;
 import com.rho.RhoClassFactory;
 import com.rho.RhoConf;
 import com.rho.RhoEmptyLogger;
+import com.rho.RhoEmptyProfiler;
 import com.rho.RhoLogger;
+import com.rho.RhoMainScreen;
+import com.rho.RhoProfiler;
 import com.rho.RhoRuby;
 import com.rho.RhoThread;
 import com.rho.SimpleFile;
 import com.rho.Version;
+import com.rho.db.DBAdapter;
 import com.rho.location.GeoLocation;
 import com.rho.net.RhoConnection;
+import com.rho.net.URI;
 import com.rho.sync.SyncThread;
 import com.rho.sync.ISyncStatusListener;
 import com.rho.Jsr75File;
@@ -82,6 +81,9 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 	
 	private static final RhoLogger LOG = RhoLogger.RHO_STRIP_LOG ? new RhoEmptyLogger() : 
 		new RhoLogger("RhodesApplication");
+	
+	private static final RhoProfiler PROF = RhoProfiler.RHO_STRIP_PROFILER ? new RhoEmptyProfiler() : 
+		new RhoProfiler();
 
 	/*boolean m_bSDCardAdded = false;
 	public void rootChanged(int arg0, String arg1)
@@ -146,12 +148,17 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 
     //}
 
+    boolean isExternalUrl(String strUrl)
+    {
+    	return strUrl.startsWith("http://") || strUrl.startsWith("https://");    
+    }
+    
     String canonicalizeURL( String url ){
 		if ( url == null || url.length() == 0 )
 			return "";
 
 		url.replace('\\', '/');
-		if ( !url.startsWith(_httpRoot) ){
+		if ( !url.startsWith(_httpRoot) && !isExternalUrl(url) ){
     		if ( url.charAt(0) == '/' )
     			url = _httpRoot.substring(0, _httpRoot.length()-1) + url;
     		else
@@ -233,7 +240,7 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 
     void addToHistory(String strUrl, String refferer )
     {
-        if ( !strUrl.startsWith(_httpRoot) )
+        if ( !strUrl.startsWith(_httpRoot) && !isExternalUrl(strUrl) )
         	strUrl = _httpRoot + (strUrl.startsWith("/") ? strUrl.substring(1) : strUrl);
     	
     	int nPos = -1;
@@ -268,23 +275,33 @@ final public class RhodesApplication extends UiApplication implements RenderingA
     	saveCurrentLocation(strUrl);
     }
 
-    void openLink(){
+    private boolean m_bOpenLink = false;
+    boolean openLink(){
     	LOG.INFO("openLink");
-    	Menu menu = _mainScreen.getMenu(0);
-        int size = menu.getSize();
-        for(int i=0; i<size; i++)
-        {
-            MenuItem item = menu.getItem(i);
-            String label = item.toString();
-            if(label.equalsIgnoreCase("Get Link")) //TODO: catch by ID?
-            {
-              item.run();
-            }
-        }
+    	try{
+    		m_bOpenLink = true;
+	    	Menu menu = _mainScreen.getMenu(0);
+	        int size = menu.getSize();
+	        for(int i=0; i<size; i++)
+	        {
+	            MenuItem item = menu.getItem(i);
+	            String label = item.toString();
+	            if(label.equalsIgnoreCase("Get Link")) //TODO: catch by ID?
+	            {
+	              item.run();
+	              return true;
+	            }
+	        }
+    	}finally
+	    {
+    		m_bOpenLink = false;
+	    }
 //    	MenuItem item = _mainScreen.getSavedGetLinkItem();
 //    	if ( item != null ) {
 //    		item.run();
 //    	}
+        
+        return false;
     }
 
     public void showPopup(final String message) {
@@ -352,7 +369,11 @@ final public class RhodesApplication extends UiApplication implements RenderingA
             				//retrieve the file
             				Class clazz = Class.forName("rhomobile.RhodesApplication");
             				file = RhoClassFactory.createFile();
-            				InputStream is = file.getResourceAsStream(clazz.getClass(), "/apps" + file_name);
+            				String strClassName = file_name;
+            				if ( !strClassName.startsWith("/apps") )
+            					strClassName = "/apps" + file_name;
+            				
+            				InputStream is = file.getResourceAsStream(clazz.getClass(), strClassName);
             				//create an instance of the player from the InputStream
             				Player player = javax.microedition.media.Manager.createPlayer(is,type);
             				player.realize();
@@ -469,6 +490,7 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 		}
 		
 		m_bActivated = true;
+		
 		doStartupWork();
 		
     	LOG.TRACE("Rhodes activate ***--------------------------***");
@@ -483,6 +505,7 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 
 	public void deactivate() {
     	LOG.TRACE("Rhodes deactivate ***--------------------------***");		
+    	
 //		SyncEngine.stop(null);
 		GeoLocation.stop();
 		RingtoneManager.stop();
@@ -504,13 +527,19 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 		//LOG.INFO("Sync status: " + status);
 		//if (_syncStatusPopup == null && error != 0) {
 		//	createStatusPopup();
-		//} else 
-		if (_syncStatusPopup != null) { 
-			_syncStatusPopup.showStatus(status);
-		}
+		//} else
+		invokeLater( new Runnable() {
+			public void run() {
+				if (_syncStatusPopup != null) { 
+					_syncStatusPopup.showStatus(_lastStatusMessage);
+				}
+			}
+		});	
+				
 	}
 	
 	public void createStatusPopup() {
+		_lastStatusMessage = null;
 		invokeLater( new Runnable() {
 			public void run() {
 				if (_syncStatusPopup == null) {
@@ -537,9 +566,9 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 	    
 	    public void showStatus(String status) {
 	    	if (status == null) return;
-            synchronized (Application.getEventLock()) {	
+            //synchronized (Application.getEventLock()) {	
 	    		_labelStatus.setText(status);
-            }
+           // }
 	    }
 	    
 	    protected boolean keyDown( int keycode, int status ) {
@@ -564,9 +593,18 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 		}
 	}
 	
-    class CMainScreen extends MainScreen{
+    class CMainScreen extends RhoMainScreen{
     	
-    	private Vector menuItems = new Vector();
+    	protected boolean navigationClick(int status, int time) {
+			//LOG.INFO("navigationClick: " + status);
+			return super.navigationClick(status, time);
+		}
+
+    	protected void onTouchUnclick() {
+			openLink();
+    	}
+    	
+		private Vector menuItems = new Vector();
 
 		private MenuItem homeItem = new MenuItem(RhodesApplication.LABEL_HOME, 200000, 10) {
 			public void run() {
@@ -615,11 +653,20 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 
 		private MenuItem savedGetLinkItem = null;
 
-		protected void makeMenu(Menu menu, int instance) {
+		protected void makeMenu(Menu menu, int instance) 
+		{
+			if (m_bOpenLink)
+			{
+				super.makeMenu(menu, instance);
+				return;
+			}
+			
+			menu.deleteAll();
+/*			
 	        // TODO: This is really a hack, we should replicate the "Get Link" functionality
 			// Also, for some reason the menu size becomes 0 when there is 1 item left (page view)
 	    	for(int i=0; i < menu.getSize(); i++) {
-	    		System.out.println("Getting menu item: " + i);
+	    		//System.out.println("Getting menu item: " + i);
 	    	    MenuItem item = menu.getItem(i);
 	    	    String label = item.toString();
 	    	    // Save the get link menuitem
@@ -643,7 +690,7 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 	    		// item with index 0 cause exception - menu is actually empty!
 	    	}
 	    	if (pgview != null && pgview.getId() == 853)
-	    		menu.deleteItem(0);
+	    		menu.deleteItem(0);*/
 	    	
 			// Don't draw menu if menuItems is null
 			if (menuItems == null)
@@ -670,6 +717,8 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 				contextMenu.addItem(item);
 			}
 		
+			//setDefaultItemToMenu(RhodesApplication.LABEL_SYNC, syncItem, contextMenu);
+			
 			this.makeContextMenu(contextMenu);
 			menu.add(contextMenu);
 		}
@@ -834,7 +883,24 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 	    		LOG.ERROR(exc.getMessage());
 	    	}
 	    	
+	    	//PROF.createSqlCounters();
+	    	
 	        RhoRuby.RhoRubyStart("");
+	        
+	        /*
+	        DBAdapter db = DBAdapter.getInstance();
+	        String sql = "select * from object_values";
+	        
+	        //PROF.flushSqlCounters("First run");
+	        
+	        for (int i = 0; i < 3; ++i) {
+	        	LOG.INFO("Doing select: " + i);
+	        	db.executeSQL(sql);
+	        	LOG.INFO("Done");
+	        	//PROF.flushSqlCounters("SQL operation: " + i);
+	        }
+	        */
+	        
 	        SyncThread sync = SyncThread.Create( new RhoClassFactory() );
 	        if (sync != null) {
 	        	sync.setStatusListener(this);
@@ -847,6 +913,7 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 	        
 	        PrimaryResourceFetchThread.Create();
 	        
+	        RhoRuby.RhoRubyInitApp();
 	        LOG.INFO("RHODES STARTUP COMPLETED: ***----------------------------------*** " );
     	}catch(Exception exc)
     	{
@@ -955,11 +1022,15 @@ final public class RhodesApplication extends UiApplication implements RenderingA
                 	browserContent.finishLoading();
                 else
                 {
-                	synchronized (Application.getEventLock())
-	                //synchronized (getAppEventLock())
-	                {
-	                	browserContent.finishLoading();
-	                }
+                	if ( URI.isLocalHost(connection.getURL()) )
+            		{
+	                	synchronized (Application.getEventLock())
+		                //synchronized (getAppEventLock())
+		                {
+		                	browserContent.finishLoading();
+		                }
+            		}else
+            			browserContent.finishLoading();
                 }
             }
 
@@ -984,8 +1055,8 @@ final public class RhodesApplication extends UiApplication implements RenderingA
 
                 UrlRequestedEvent urlRequestedEvent = (UrlRequestedEvent) event;
                 String absoluteUrl = urlRequestedEvent.getURL();
-                if ( !absoluteUrl.startsWith(_httpRoot) )
-                	absoluteUrl = _httpRoot + absoluteUrl.substring(_httpRoot.length()-5);
+                //if ( !absoluteUrl.startsWith(_httpRoot) )
+                //	absoluteUrl = _httpRoot + absoluteUrl.substring(_httpRoot.length()-5);
 
                 if ( urlRequestedEvent.getPostData() == null ||
                 	 urlRequestedEvent.getPostData().length == 0 )
@@ -1002,7 +1073,7 @@ final public class RhodesApplication extends UiApplication implements RenderingA
             } case Event.EVENT_BROWSER_CONTENT_CHANGED: {
 
                 // browser field title might have changed update title
-                BrowserContentChangedEvent browserContentChangedEvent = (BrowserContentChangedEvent) event;
+                /*BrowserContentChangedEvent browserContentChangedEvent = (BrowserContentChangedEvent) event;
 
                 if (browserContentChangedEvent.getSource() instanceof BrowserContent) {
                     BrowserContent browserField = (BrowserContent) browserContentChangedEvent.getSource();
@@ -1014,7 +1085,7 @@ final public class RhodesApplication extends UiApplication implements RenderingA
                         	_mainScreen.setTitle(newTitle);
                         }
                     }
-                }
+                }*/
 
                 break;
 
@@ -1046,8 +1117,8 @@ final public class RhodesApplication extends UiApplication implements RenderingA
                             // MSIE, Mozilla, and Opera all send the original
                             // request's Referer as the Referer for the new
                             // request.
-                            if ( !absoluteUrl.startsWith(_httpRoot) )
-                            	absoluteUrl = _httpRoot + absoluteUrl.substring(_httpRoot.length()-5);
+                            //if ( !absoluteUrl.startsWith(_httpRoot) )
+                            //	absoluteUrl = _httpRoot + absoluteUrl.substring(_httpRoot.length()-5);
 
                         	addToHistory(absoluteUrl,referrer);
                             Object eventSource = e.getSource();
@@ -1135,18 +1206,24 @@ final public class RhodesApplication extends UiApplication implements RenderingA
         }
 
         // if referrer is null we must return the connection
-        //if (referrer == null) {
-            HttpConnection connection = Utilities.makeConnection(resource.getUrl(), resource.getRequestHeaders(), null);
+        if (referrer == null) {
+            HttpConnection connection = Utilities.makeConnection(url, resource.getRequestHeaders(), null);
             return connection;
 
-        //} else {
+        } else 
+        {
+    		if ( URI.isLocalHost(url) )
+    		{
+                HttpConnection connection = Utilities.makeConnection(url, resource.getRequestHeaders(), null);
+                return connection;
+   			}else
+   			{
+	            // if referrer is provided we can set up the connection on a separate thread
+	            SecondaryResourceFetchThread.enqueue(resource, referrer);
+   			}
+        }
 
-            // if referrer is provided we can set up the connection on a separate thread
-        //    SecondaryResourceFetchThread.enqueue(resource, referrer);
-
-        //}
-
-        //return null;
+        return null;
     }
 
     /**

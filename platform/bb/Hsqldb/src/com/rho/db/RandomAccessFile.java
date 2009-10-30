@@ -5,14 +5,11 @@ import java.io.*;
 import j2me.io.FileNotFoundException;
 
 import javax.microedition.io.Connector;
-import javax.microedition.io.file.FileConnection;
 
-import com.rho.RhoConf;
-import com.rho.RhoEmptyLogger;
-import com.rho.RhoLogger;
-import com.rho.db.file.Jsr75RAFileImpl;
-import com.rho.db.file.PersistRAFileImpl;
-import com.rho.db.file.RAFileImpl;
+import com.rho.RhoClassFactory;
+//import com.rho.RhoEmptyLogger;
+//import com.rho.RhoLogger;
+import com.rho.IRAFile;
 
 import j2me.nio.channels.*;
 
@@ -20,16 +17,10 @@ import j2me.io.File;
 
 public class RandomAccessFile  
 {
-	private static final RhoLogger LOG = RhoLogger.RHO_STRIP_LOG ? new RhoEmptyLogger() : 
-		new RhoLogger("RAFile");
+	//private static final RhoLogger LOG = RhoLogger.RHO_STRIP_LOG ? new RhoEmptyLogger() : 
+	//	new RhoLogger("RAFile");
 	
-	public static final int READ = Connector.READ;
-	public static final int WRITE = Connector.WRITE;
-	public static final int READ_WRITE = Connector.READ_WRITE;
-	
-	public static final String USE_PERSISTENT = "use_persistent_storage";
-	
-	private RAFileImpl m_impl = null;
+	private IRAFile m_impl = null;
 	
     private boolean        m_bWriteAccess;
     
@@ -45,9 +36,9 @@ public class RandomAccessFile
     	String name = (file != null ? file.getPath() : null);
     	int imode = -1;
     	if (mode.equals("r"))
-    	    imode = READ;
+    	    imode = Connector.READ;
     	else if (mode.startsWith("rw")) {
-    	    imode = READ_WRITE;
+    	    imode = Connector.READ_WRITE;
     	    m_bWriteAccess = true;
     	}
     	
@@ -59,15 +50,12 @@ public class RandomAccessFile
             throw new NullPointerException();
         }
     	
-        if (RhoConf.getInstance().getBool(USE_PERSISTENT)) {
-        	LOG.TRACE("Use persistent storage implementation");
-        	m_impl = new PersistRAFileImpl();
-        }
-        else {
-        	LOG.TRACE("Use Jsr75 implementation");
-        	m_impl = new Jsr75RAFileImpl();
-        }
-        m_impl.open(name, imode);
+        try {
+			m_impl = RhoClassFactory.createRAFile();
+		} catch (Exception e) {
+			throw new FileNotFoundException(e.getMessage());
+		}
+        m_impl.open(name, mode);
     }
     
     public long length() throws IOException
@@ -225,5 +213,13 @@ public class RandomAccessFile
     	    return null;
     	}
     	return input.toString();
+    }
+    
+    public void listenForSync(String name) throws IOException {
+    	m_impl.listenForSync(name);
+    }
+    
+    public void stopListenForSync(String name) throws IOException {
+    	m_impl.stopListenForSync(name);
     }
 }

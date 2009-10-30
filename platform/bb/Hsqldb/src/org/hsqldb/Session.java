@@ -161,13 +161,14 @@ public class Session implements SessionInterface {
     }
 
     //RHO
-    private IDeleteCallback m_deleteCallback;
-    public interface IDeleteCallback {
+    private IDBCallback m_dbCallback;
+    public interface IDBCallback {
     	public void onDeleteRow(Table table, Row row);
+    	public void onInsertRow(Table table, Row row);
     };
     
-    public void setDeleteCallback(IDeleteCallback callback){
-    	m_deleteCallback = callback;
+    public void setDBCallback(IDBCallback callback){
+    	m_dbCallback = callback;
     }
     //RHO
     /**
@@ -418,8 +419,8 @@ public class Session implements SessionInterface {
      */
     public boolean addDeleteAction(Table table, Row row) throws HsqlException {
     	m_bNeedCommit = true;//!isNestedTransaction;
-    	if ( m_deleteCallback != null )
-    		m_deleteCallback.onDeleteRow(table, row);
+    	if ( m_dbCallback != null )
+    		m_dbCallback.onDeleteRow(table, row);
     	
         if (!isAutoCommit || isNestedTransaction) {
             Transaction t = new Transaction(true, table, row, actionTimestamp);
@@ -455,12 +456,20 @@ public class Session implements SessionInterface {
 	            rowActionList.add(t);
 	            database.txManager.addTransaction(this, t);
         	}
+
+        	if ( m_dbCallback != null )
+        		m_dbCallback.onInsertRow(table, row);
         	
             return true;
         } else {
             table.commitRowToStore(row);
+            
+        	if ( m_dbCallback != null )
+        		m_dbCallback.onInsertRow(table, row);
+            
         }
 
+        
         return false;
     }
 
@@ -1088,13 +1097,13 @@ public class Session implements SessionInterface {
 
     Result sqlExecuteCompiledNoPreChecks(CompiledStatement cs,
                                          Object[] pvals) {
-        return compiledStatementExecutor.execute(cs, pvals);
+        return compiledStatementExecutor.execute(cs, pvals, false);
     }
 
     public Result sqlExecuteCompiledNoPreChecksSafe(CompiledStatement cs,
-            Object[] pvals) {
+            Object[] pvals, boolean bReportNonUnique) {
     	synchronized (database) {
-    		return compiledStatementExecutor.execute(cs, pvals);
+    		return compiledStatementExecutor.execute(cs, pvals, bReportNonUnique);
     	}
 	}
     

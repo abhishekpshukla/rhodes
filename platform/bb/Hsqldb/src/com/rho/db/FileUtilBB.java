@@ -1,16 +1,13 @@
 package com.rho.db;
 
 import j2me.io.File;
-//import j2me.io.FileDescriptor;
-//import j2me.io.FileInputStream;
-//import j2me.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Random;
 
-import javax.microedition.io.file.FileConnection;
-import javax.microedition.io.Connector;
-
 import org.hsqldb.lib.FileAccess;
+
+import com.rho.RhoClassFactory;
+import com.rho.IRAFile;
 
 /**
  * A collection of static file management methods.<p>
@@ -19,8 +16,19 @@ import org.hsqldb.lib.FileAccess;
 public class FileUtilBB implements FileAccess {
 
     private static FileUtilBB fileUtil = new FileUtilBB();
-
-    FileUtilBB() {}
+    
+    private static IRAFile impl = null;
+    
+    private void InitImpl() {
+    	if (impl == null) {
+    		try {
+    			impl = RhoClassFactory.createRAFile();
+    		}
+    		catch (Exception e) {
+    			System.out.println("FileUtilBB:InitImpl Exception: " + e.getMessage());
+    		}
+    	}
+    }
 
     public static FileUtilBB getDefaultInstance() {
         return fileUtil;
@@ -30,22 +38,25 @@ public class FileUtilBB implements FileAccess {
     	return exists(elementName);
     }
 
-    public long getFileLength(java.lang.String filename){
+    public long getFileLength(java.lang.String filename) {
     	
-    	FileConnection fconn = null;
-    	try{
-	    	fconn = (FileConnection)Connector.open(filename,Connector.READ);
-	    	return fconn.fileSize();
-    	}catch(IOException exc){
-    		System.out.println("FileUtilBB:getFileLength Exception: " + exc.getMessage() + ";File: " + filename);
-    	}finally{
-    		if ( fconn != null )
-    			try{ 
-    				fconn.close(); 
-    			}catch(IOException exc){
-    	    		System.out.println("FileUtilBB:getFileLength Close Exception: " + exc.getMessage() + ";File: " + filename);
-    	    	}
-    	}
+   		InitImpl();
+   		synchronized (impl) {
+	   		try {
+	    		impl.open(filename);
+	    		return impl.size();
+	    	}
+	    	catch(Exception exc) {
+	    		System.out.println("FileUtilBB:getFileLength Exception: " + exc.getMessage() + ";File: " + filename);
+	    	}
+	    	finally {
+	    		try {
+					impl.close();
+				} catch (IOException e) {
+					System.out.println("FileUtilBB:getFileLenght Exception on close: " + e.getMessage() + ";File: " + filename);
+				}
+	    	}
+   		}
     	
     	return 0;
     }
@@ -112,26 +123,23 @@ public class FileUtilBB implements FileAccess {
     /**
      * Delete the named file
      */
-    public void delete(String filename) 
+    public void delete(String filename)
     {
-        FileConnection fconn = null;
-    	
-    	try{
-    		fconn = (FileConnection)Connector.open(filename,Connector.READ_WRITE);
-    		//if ( fc.isDirectory() )
-    		//	deleteFilesInFolder(fc);
-        	
-    		if ( fconn != null && fconn.exists() )
-    			fconn.delete();
-    	}catch(IOException exc){
-    		System.out.println("FileUtilBB:delete '" + filename + "' Exception: " + exc.getMessage());
-    	}finally{
-    		if ( fconn != null )
-    			try{fconn.close();}catch(IOException exc){
-    				System.out.println("FileUtilBB:delete close '" + filename + "' Exception: " + exc.getMessage());
-			    }
+    	InitImpl();
+    	synchronized (impl) {
+	    	try {
+	    		impl.open(filename, "rw");
+	    		impl.delete();
+	    	}catch(Exception exc){
+	    		System.out.println("FileUtilBB:delete '" + filename + "' Exception: " + exc.getMessage());
+	    	}finally{
+	    		try {
+					impl.close();
+				} catch (IOException e) {
+					System.out.println("FileUtilBB:delete Exception on close: " + e.getMessage() + ";File: " + filename);
+				}
+	    	}
     	}
-    	
     }
 
     /**
@@ -152,27 +160,50 @@ public class FileUtilBB implements FileAccess {
     public void deleteOnExit(File f) {
         //JavaSystem.deleteOnExit(f);
     }
+    
+    public long size(String filename) {
+    	InitImpl();
+    	synchronized (impl) {
+			try {
+				impl.open(filename);
+				return impl.size();
+			}
+			catch (Exception exc) {
+				return 0;
+			}
+			finally {
+				try {
+					impl.close();
+				}
+				catch (Exception e) {
+					System.out.println("FileUtilBB:size Exception on close: " + e.getMessage() + ";File: " + filename);
+				}
+			}
+		}
+    }
 
     /**
      * Return true or false based on whether the named file exists.
      */
     public boolean exists(String filename) 
     {
-        FileConnection fconn = null;
-    	
-    	try{
-        	fconn = (FileConnection)Connector.open(filename);
-        	return fconn.exists();
-    	}catch(IOException exc){
-    		System.out.println("FileUtilBB:exists '" + filename + "' Exception: " + exc.getMessage());
-    	}finally{
-    		if ( fconn != null )
-    			try{fconn.close();}catch(IOException exc){
-    				System.out.println("FileUtilBB:exists close '" + filename + "' Exception: " + exc.getMessage());
-			    }
+    	InitImpl();
+    	synchronized (impl) {
+	    	try{
+	    		impl.open(filename);
+	    		return impl.exists();
+	    	}
+	    	catch (Exception exc) {
+	    		return false;
+	    	}
+	    	finally {
+	    		try {
+					impl.close();
+				} catch (Exception e) {
+					System.out.println("FileUtilBB:exists Exception on close: " + e.getMessage() + ";File: " + filename);
+				}
+	    	}
     	}
-    	
-    	return false;
     }
 
     public boolean exists(String fileName, boolean resource, Class cla) {
@@ -193,27 +224,27 @@ public class FileUtilBB implements FileAccess {
      */
     private void renameOverwrite(String oldname, String newname) {
 
-        delete(newname);
-
-        FileConnection fconn = null;
-    	try{
-        	fconn = (FileConnection)Connector.open(oldname, Connector.READ_WRITE);
-        	
-        	String name = newname;
-        	int nSlash = newname.lastIndexOf('/');
-        	if ( nSlash >= 0 )
-        		name = newname.substring(nSlash+1);
-        	
-        	if ( fconn.exists() ){
-        		fconn.rename(name);
-        	}
-    	}catch(IOException exc){
-    		System.out.println("FileUtilBB:renameOverwrite from '" + oldname + "' to '" + newname + "' Exception: " + exc.getMessage());
-    	}finally{
-    		if ( fconn != null )
-    			try{fconn.close();}catch(IOException exc){
-    				System.out.println("FileUtilBB:renameOverwrite close Exception: " + exc.getMessage());
-			    }
+    	InitImpl();
+    	synchronized (impl) {
+	        delete(newname);
+	    	try{
+	        	String name = newname;
+	        	int nSlash = newname.lastIndexOf('/');
+	        	if ( nSlash >= 0 )
+	        		name = newname.substring(nSlash+1);
+	        	
+	        	InitImpl();
+	        	impl.open(oldname, "rw");
+	        	impl.rename(name);
+	    	}catch(IOException exc){
+	    		System.out.println("FileUtilBB:renameOverwrite from '" + oldname + "' to '" + newname + "' Exception: " + exc.getMessage());
+	    	}finally{
+	    		try {
+					impl.close();
+				} catch (Exception e) {
+					System.out.println("FileUtilBB:rename Exception on close: " + e.getMessage() + ";From '" + oldname + "' to '" + newname + "'");
+				}
+	    	}
     	}
     }
 

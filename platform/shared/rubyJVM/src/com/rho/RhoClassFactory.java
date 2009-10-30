@@ -38,33 +38,19 @@ public class RhoClassFactory
         
     }
     
+    public static IFileAccess createFileAccess() throws Exception
+    {
+    	return RhoClassFactory.createRhoRubyHelper().createFileAccess();
+    }
+    
+    public static IRAFile createRAFile() throws Exception
+    {
+    	return RhoClassFactory.createRhoRubyHelper().createRAFile();
+    }
+    
     public static IDBStorage createDBStorage() throws Exception
     {
     	return RhoClassFactory.createRhoRubyHelper().createDBStorage();
-    	/*
-    	LOG.INFO("createDBStorage");    	
-        Class wrapperClass;
-        try {
-            wrapperClass = Class.forName("com.rho.db.HsqlDBStorage");
-        } catch (ClassNotFoundException exc) {  
-        	try {
-                wrapperClass = Class.forName("com.rhomobile.rhodes.db.DBStorage"); //android
-            } catch (ClassNotFoundException e) {
-	        	LOG.ERROR("createDBStorage- Class not found",e);    	
-            	
-                throw e;
-            }
-        }
-        
-        try{
-        	return (IDBStorage)wrapperClass.newInstance();
-        }catch(Exception e)
-        {
-        	LOG.ERROR("createDBStorage - newInstance failed",e);    	
-        	
-        	throw e;
-        }
-        */
     }
 
     public static IRhoRubyHelper createRhoRubyHelper() throws Exception

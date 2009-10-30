@@ -1,47 +1,66 @@
 #
-def set_app_name(newname)
-  fname = Jake.get_absolute $androidpath + "/Rhodes/res/values/strings.xml"
+def set_app_name_android(newname)
+  puts "set_app_name"
+  $stdout.flush
+
+  fname = Jake.get_absolute File.join($androidpath, "Rhodes", "res", "values", "strings.xml")
   buf = File.new(fname,"r").read.gsub(/"app_name">.*<\/string>/,"\"app_name\">#{newname}</string>")
   File.open(fname,"w") { |f| f.write(buf) }
 
+  lowname = newname.downcase.gsub(/[^A-Za-z_0-9]/, '')
+
+  fname = Jake.get_absolute File.join($androidpath, "Rhodes", "AndroidManifest.xml")
+  buf = File.new(fname,"r").read.gsub(/package=".*"/,"package=\"com.rhomobile.#{lowname}\"")
+  File.open(fname,"w") { |f| f.write(buf) }
+
+  fname = Jake.get_absolute File.join($androidpath, "Rhodes", "src", "com", "rhomobile", "rhodes", "AndroidR.java")
+  buf = File.new(fname,"r").read.gsub(/^\s*import com\.rhomobile\..*\.R;\s*$/,"\nimport com.rhomobile.#{lowname}.R;\n")
+  File.open(fname,"w") { |f| f.write(buf) }
+end
+
+def generate_rjava
+  Rake::Task["build:android:rjava"].execute
 end
 
 namespace "config" do
   task :android => ["config:common"] do
+    $config["platform"] = "android"
+
     $java = $config["env"]["paths"]["java"]
     $androidsdkpath = $config["env"]["paths"]["android"]
-    $androidplatform = "android-1.1"
-    $androidpath = $config["build"]["androidpath"]
-    $bindir = $androidpath + "/bin"
-    $builddir = $androidpath + "/build"
-    $srcdir =  $bindir + "/RhoBundle"
-    $targetdir = $androidpath + "/target"
+    $androidplatform = "android-1.5"
+    $avdname = "rhoAndroid15"
+    $androidpath = Jake.get_absolute $config["build"]["androidpath"]
+    $bindir = File.join($app_path, "bin")
+    $builddir = File.join($androidpath, "build")
+    $srcdir = File.join($bindir, "RhoBundle")
+    $targetdir = File.join($bindir, "target")
     $excludelib = ['**/singleton.rb','**/rational.rb','**/rhoframework.rb','**/date.rb']
-    $tmpdir =  $bindir +"/tmp"
-    $resourcedir = $tmpdir + "/resource"
+    $tmpdir = File.join($bindir, "tmp")
+    $resourcedir = File.join($tmpdir, "resource")
     $excludeapps = "public/js/iui/**,**/jquery*"
-    $libs = $androidpath + "/Rhodes/libs"
+    $libs = File.join($androidpath, "Rhodes", "libs")
+    $appname = $app_config["name"]
+    $appname = "Rhodes" if $appname.nil?
 
     if RUBY_PLATFORM =~ /(win|w)32$/
-      $dx = File.join( $androidsdkpath, "platforms", $androidplatform, "tools", "dx.bat" )
-      $aapt = File.join( $androidsdkpath, "platforms", $androidplatform, "tools", "aapt.exe" )
-      $apkbuilder = File.join( $androidsdkpath, "tools", "apkbuilder.bat" )
-      $androidbin = File.join( $androidsdkpath, "tools", "android.bat" )
       $emulator = "cmd /c " + File.join( $androidsdkpath, "tools", "emulator.exe" )
-      $adb = File.join( $androidsdkpath, "tools", "adb.exe" )
+      $bat_ext = ".bat"
       $exe_ext = ".exe"
       $path_separator = ";"
     else
       #XXX make these absolute
-      $dx = File.join( $androidsdkpath, "platforms", $androidplatform, "tools", "dx" )
-      $aapt = File.join( $androidsdkpath, "platforms", $androidplatform, "tools", "aapt" )
-      $apkbuilder = File.join( $androidsdkpath, "tools", "apkbuilder" )
-      $androidbin = File.join( $androidsdkpath, "tools", "android" )
       $emulator = File.join( $androidsdkpath, "tools", "emulator" )
-      $adb = File.join( $androidsdkpath, "tools", "adb" )
+      $bat_ext = ""
       $exe_ext = ""
       $path_separator = ":"
     end
+
+    $dx = File.join( $androidsdkpath, "platforms", $androidplatform, "tools", "dx" + $bat_ext )
+    $aapt = File.join( $androidsdkpath, "platforms", $androidplatform, "tools", "aapt" + $exe_ext )
+    $apkbuilder = File.join( $androidsdkpath, "tools", "apkbuilder" + $bat_ext )
+    $androidbin = File.join( $androidsdkpath, "tools", "android" + $bat_ext )
+    $adb = File.join( $androidsdkpath, "tools", "adb" + $exe_ext )
 
     $keytool = File.join( $java, "keytool" + $exe_ext )
     $jarsigner = File.join( $java, "jarsigner" + $exe_ext )
@@ -62,44 +81,43 @@ end
 
 namespace "build" do
   namespace "android" do
-    desc "Generate R.java file"
+ #   desc "Generate R.java file"
     task :rjava => "config:android" do
 
-      manifest = Jake.get_absolute $androidpath + "/Rhodes/AndroidManifest.xml"
-      resource = Jake.get_absolute $androidpath + "/Rhodes/res"
-      assets = Jake.get_absolute $androidpath + "/Rhodes/assets"
-      rjava = Jake.get_absolute $androidpath + "/Rhodes/gen/com/rhomobile/rhodes"
-      androidjar = $androidsdkpath + "/platforms/" + $androidplatform + "/android.jar"
+      manifest = File.join($androidpath, "Rhodes", "AndroidManifest.xml")
+      resource = Jake.get_absolute File.join($androidpath, "Rhodes", "res")
+      assets = Jake.get_absolute File.join($androidpath, "Rhodes", "assets")
+      rjava = Jake.get_absolute File.join($androidpath, "Rhodes", "gen", "com", "rhomobile", "rhodes")
+      androidjar = File.join($androidsdkpath, "platforms", $androidplatform, "android.jar")
 
       mkdir_p $tmpdir
-
-      cp resource + "/drawable/icon.png",$tmpdir + "/icon.png.bak"
-      cp $config["env"]["app"] + "/icon/icon.png", resource + "/drawable"
-      set_app_name($config["env"]["appname"]) unless $config["env"]["appname"].nil?
+      iconbakname = $tmpdir + "/icon.png.bak"
+      iconappname = $app_path + "/icon/icon.png"
+      cp resource + "/drawable/icon.png",iconbakname
+      cp iconappname, resource + "/drawable" if File.exists?(iconappname)
 
       args = ["package","-f","-M",manifest,"-S", resource,"-A", assets,"-I",androidjar,"-J", rjava  ]
       puts Jake.run($aapt,args)
 
-      set_app_name("Rhodes") unless $config["env"]["appname"].nil?
-      mv $tmpdir + "/icon.png.bak",resource + "/drawable/icon.png"
+      exitstatus = $?
 
-      unless $? == 0
+      mv iconbakname,resource + "/drawable/icon.png" if File.exists?(iconbakname)
+
+      unless exitstatus == 0
         puts "Error in AAPT"
         exit 1
       end
 
     end
-    desc "Build RhoBundle for android"
+#    desc "Build RhoBundle for android"
     task :rhobundle => "config:android" do
       Rake::Task["build:bundle:xruby"].execute
 
-      cp_r $srcdir + "/apps", $androidpath + "/Rhodes/assets"
+      cp_r $srcdir + "/apps", Jake.get_absolute($androidpath) + "/Rhodes/assets"
       cp_r $bindir + "/RhoBundle.jar", $libs
-
-      Rake::Task["build:android:rjava"].execute
     end
 
-    desc "Build RubyVM for android"
+#    desc "Build RubyVM for android"
     task :rubyvm => "config:android" do
       javac = $config["env"]["paths"]["java"] + "/javac" + $exe_ext
       cp_r "platform/shared/rubyJVM", $bindir
@@ -135,12 +153,15 @@ namespace "build" do
       cp_r $bindir + "/RubyVM.jar", $libs
 
     end
-    desc "Build Rhodes for android"
+ #   desc "Build Rhodes for android"
     task :rhodes => [:rubyvm, :rhobundle] do
       javac = $config["env"]["paths"]["java"] + "/javac" + $exe_ext
 
       rm_rf $tmpdir + "/Rhodes"
       mkdir_p $tmpdir + "/Rhodes"
+
+      set_app_name_android($appname)
+      generate_rjava
 
       args = []
       args << "-g"
@@ -156,6 +177,8 @@ namespace "build" do
       args << "@#{$builddir}/RhodesGEN_build.files"
       puts Jake.run(javac,args)
       unless $? == 0
+        set_app_name_android("Rhodes")
+        generate_rjava
         puts "Error compiling java code"
         exit 1
       end
@@ -174,12 +197,14 @@ namespace "build" do
       args << "@#{$builddir}/RhodesSRC_build.files"
       puts Jake.run(javac,args)
       unless $? == 0
+        set_app_name_android("Rhodes")
+        generate_rjava
         puts "Error compiling java code"
         exit 1
       end
 
-
-
+      set_app_name_android("Rhodes")
+      generate_rjava
 
       args = ["cf","../../Rhodes.jar", "#{$all_files_mask}"]
       puts Jake.run($config["env"]["paths"]["java"] + "/jar" + $exe_ext, args, "#{$tmpdir}/Rhodes/")
@@ -189,7 +214,7 @@ namespace "build" do
       end
     end
 
-    desc "build all"
+    #desc "build all"
     task :all => [:rubyvm, :rhobundle, :rhodes]
   end
 end
@@ -199,11 +224,11 @@ namespace "package" do
     puts "Running dx utility"
     args = []
     args << "--dex"
-    outfile = Jake.get_absolute("#{$bindir}/classes.dex")
+    outfile = "#{$bindir}/classes.dex"
     args << "--output=#{outfile}"
-    args << Jake.get_absolute("#{$bindir}/Rhodes.jar")
-    args << Jake.get_absolute("#{$bindir}/RubyVM.jar")
-    args << Jake.get_absolute("#{$bindir}/RhoBundle.jar")
+    args << "#{$bindir}/Rhodes.jar"
+    args << "#{$bindir}/RubyVM.jar"
+    args << "#{$bindir}/RhoBundle.jar"
     puts Jake.run($dx,args)
     unless $? == 0
       puts "Error running DX utility"
@@ -214,19 +239,21 @@ namespace "package" do
     resource = Jake.get_absolute $androidpath + "/Rhodes/res"
     assets = Jake.get_absolute $androidpath + "/Rhodes/assets"
     androidjar = "#{$androidsdkpath}/platforms/#{$androidplatform}/android.jar"
-    resourcepkg = Jake.get_absolute $bindir + "/rhodes.ap_"
+    resourcepkg =  $bindir + "/rhodes.ap_"
 
     puts "Packaging Assets and Jars"
 
-    cp resource + "/drawable/icon.png",$tmpdir + "/icon.png.bak"
-    cp $config["env"]["app"] + "/icon/icon.png", resource + "/drawable"
-    set_app_name($config["env"]["appname"]) unless $config["env"]["appname"].nil?
+    iconbakname = $tmpdir + "/icon.png.bak"
+    iconappname = $app_path + "/icon/icon.png"
+    cp resource + "/drawable/icon.png",iconbakname
+    cp iconappname, resource + "/drawable" if File.exists?(iconappname)
+    set_app_name_android($appname)
 
     puts `#{$aapt} package -f -M "#{manifest}" -S "#{resource}" -A "#{assets}" -I "#{androidjar}" -F "#{resourcepkg}"`
     returnval = $?
 
-    set_app_name("Rhodes") unless $config["env"]["appname"].nil?
-    mv $tmpdir + "/icon.png.bak",resource + "/drawable/icon.png"
+    set_app_name_android("Rhodes")
+    mv iconbakname,resource + "/drawable/icon.png" if File.exists?(iconbakname)
 
     unless returnval == 0
       puts "Error running AAPT"
@@ -238,11 +265,11 @@ end
 
 namespace "device" do
   namespace "android" do
-    desc "build self signed for debug"
+    desc "Build debug self signed for device"
     task :debug => "package:android" do
-      dexfile = Jake.get_absolute $bindir + "/classes.dex"
-      apkfile = Jake.get_absolute $targetdir + "/Rhodes-debug.apk"
-      resourcepkg = Jake.get_absolute $bindir + "/rhodes.ap_"
+      dexfile =  $bindir + "/classes.dex"
+      apkfile =  $targetdir + "/" + $appname + "-debug.apk"
+      resourcepkg =  $bindir + "/rhodes.ap_"
 
       puts "Building APK file"
       puts `#{$apkbuilder} "#{apkfile}" -z "#{resourcepkg}" -f "#{dexfile}"`
@@ -252,12 +279,12 @@ namespace "device" do
       end
 
     end
-    desc "build signed for production"
+    desc "Build production signed for device"
     task :production => "package:android" do
-      dexfile = Jake.get_absolute $bindir + "/classes.dex"
-      apkfile = Jake.get_absolute $targetdir + "/Rhodes.apk"
-      signedapkfile = Jake.get_absolute $targetdir + "/Rhodes_signed.apk"
-      resourcepkg = Jake.get_absolute $bindir + "/rhodes.ap_"
+      dexfile =  $bindir + "/classes.dex"
+      apkfile =  $targetdir + "/" + $appname + ".apk"
+      signedapkfile =  $targetdir + "/" + $appname + "_signed.apk"
+      resourcepkg =  $bindir + "/rhodes.ap_"
 
       puts "Building APK file"
       puts `#{$apkbuilder} "#{apkfile}" -u -z "#{resourcepkg}" -f "#{dexfile}"`
@@ -314,13 +341,13 @@ end
 namespace "run" do
   desc "build and launch emulator"
   task :android => "device:android:debug" do
-    apkfile = Jake.get_absolute $targetdir + "/Rhodes-debug.apk"
+    apkfile = Jake.get_absolute $targetdir + "/" + $appname + "-debug.apk"
     puts `#{$adb} start-server`
     sleep 5
 
-    system("#{$androidbin} create avd --name rhoAndroid11 --target 1 --sdcard 32M --skin HVGA")
+    system("#{$androidbin} create avd --name #{$avdname} --target 2 --sdcard 32M --skin HVGA")
 
-    Thread.new { system("#{$emulator} -avd rhoAndroid11") }
+    Thread.new { system("#{$emulator} -avd #{$avdname}") }
 
     sleep 10
 
@@ -332,7 +359,7 @@ namespace "run" do
     puts "Loading package into emulator"
     theoutput = `#{$adb} install -r "#{apkfile}"`
     count = 0
-    while (theoutput.to_s.match(/Error Type/) or theoutput.to_s.match(/Fail/))  and count < 15 do
+    while (not theoutput.to_s.match(/Success/))  and count < 15 do
       puts "Failed to load (possibly because emulator not done launching)- retrying"
       $stdout.flush
       sleep 5
@@ -344,6 +371,8 @@ namespace "run" do
 end
 
 namespace "clean" do
+  desc "Clean Android"
+  task :android => "clean:android:all"
   namespace "android" do
     task :assets => "config:android" do
       Dir.glob($androidpath + "/Rhodes/assets/apps/**/*") do |f|
@@ -354,35 +383,10 @@ namespace "clean" do
       rm_rf $targetdir
       rm_rf $bindir
       rm_rf $srcdir
+      rm_rf $libs
     end
-    desc "clean android"
+#    desc "clean android"
     task :all => [:assets,:files]
   end
 end
 
-namespace "prebuild" do
-  desc "Build binaries for anroid to be inserted into gem"
-  task :android => "build:android:all" do
-    prebuilt = "rhodes/rhodes-build/res/prebuilt/android"
-
-    if File.exists? $bindir + "/RubyVM.jar" and File.exists? $bindir + "/Rhodes.jar"
-      rm_rf prebuilt if File.exists? prebuilt
-      mkdir_p prebuilt 
-
-      cp $androidpath + "/Rhodes/assets/apps/loading.html", prebuilt
-      cp $androidpath + "/Rhodes/AndroidManifest.xml", prebuilt
-
-      cp_r $androidpath + "/Rhodes/res", prebuilt
-
-      mkdir_p prebuilt + "/src/com/rhomobile/rhodes"
-
-      cp_r $androidpath + "/Rhodes/src/com/rhomobile/rhodes/AndroidR.java", prebuilt + "/src/com/rhomobile/rhodes"
-    
-      mkdir_p prebuilt + "/classes"
-
-      Jake.unjar($bindir + "/RubyVM.jar", prebuilt + "/classes")
-      Jake.unjar($bindir + "/Rhodes.jar", prebuilt + "/classes")
-      rm_rf prebuilt + "/classes/META-INF"
-    end
-  end
-end

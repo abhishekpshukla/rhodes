@@ -28,8 +28,9 @@ typedef unsigned long long uint64__;
 #endif
 	
 void RhoRubyStart();
-void RhoRubyThreadStart();
-void RhoRubyThreadStop();
+void RhoRubyInitApp();
+//void RhoRubyThreadStart();
+//void RhoRubyThreadStop();
 
 VALUE getnil();	
 VALUE createHash();
@@ -44,14 +45,16 @@ void  releaseValue(VALUE val);
 
 VALUE callFramework(VALUE hashReq);
 VALUE callServeIndex(char* index_name);
-void RhoRuby_RhomAttribManager_save(int nSrcID);
-void RhoRuby_RhomAttribManager_delete_attribs(int nSrcID,uint64__ objID);
-void RhoRuby_RhomAttribManager_add_attrib(int nSrcID,const char* szAttrib);
 
 void RhoRubyStop();
 
 const char* RhoGetRootPath();
 
+VALUE rho_ruby_create_array();
+VALUE rho_ruby_create_string(const char* szVal);
+void rho_ruby_add_to_array(VALUE ar, VALUE val);
+
+char* RhoRuby_getRhoDBVersion();
 
 #if defined(__cplusplus)
 }
