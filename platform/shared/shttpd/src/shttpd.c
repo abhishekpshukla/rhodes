@@ -546,6 +546,7 @@ get_path_info(struct conn *c, char *path, struct stat *stp)
 	return (-1);
 }
 
+extern void rho_rhodesapp_keeplastvisitedurl(const char* szUrl);
 static void
 decide_what_to_do(struct conn *c)
 {
@@ -602,6 +603,10 @@ decide_what_to_do(struct conn *c)
 #endif /* NO_AUTH */
     if ((route = rho_dispatch(c,path)) != NULL) {
         union variant callback;
+
+        if ( strstr(_shttpd_known_http_methods[c->method].ptr, "GET" ) )
+          rho_rhodesapp_keeplastvisitedurl(c->uri);
+
         callback.v_func = (void (*)(void))rho_serve;
 		    _shttpd_setup_embedded_stream(c, callback, route);
     } else if (c->method == METHOD_PUT) {
@@ -684,8 +689,13 @@ decide_what_to_do(struct conn *c)
 			_shttpd_do_ssi(c);
 		}
 #endif /* NO_CGI */
-    } else if ( isindex(c,path) ) {
+    } else if ( isindex(c,path) ) 
+    {
         union variant callback;
+
+        if ( strstr(_shttpd_known_http_methods[c->method].ptr, "GET" ) )
+            rho_rhodesapp_keeplastvisitedurl(c->uri);
+
         callback.v_func = (void (*)(void))rho_serve_index;
 	    _shttpd_setup_embedded_stream(c, callback, _shttpd_strdup(path));
     } 
@@ -1009,24 +1019,28 @@ read_stream(struct stream *stream)
 static void
 write_stream(struct stream *from, struct stream *to)
 {
-	int	n, len;
+    int	n, len;
 
-	len = io_data_len(&from->io);
-	assert(len > 0);
+    len = io_data_len(&from->io);
+    assert(len > 0);
 
-	/* TODO: should be assert on CAN_WRITE flag */
-	n = to->io_class->write(to, io_data(&from->io), len);
-	to->conn->expire_time = _shttpd_current_time + EXPIRE_TIME;
-	DBG(("write_stream (%d %s): written %d/%d bytes (errno %d)",
+    /* TODO: should be assert on CAN_WRITE flag */
+    n = to->io_class->write(to, io_data(&from->io), len);
+    to->conn->expire_time = _shttpd_current_time + EXPIRE_TIME;
+    DBG(("write_stream (%d %s): written %d/%d bytes (errno %d)",
 	    to->conn->rem.chan.sock,
-	    to->io_class ? to->io_class->name : "(null)", n, len, ERRNO));
+        to->io_class ? to->io_class->name : "(null)", n, len, n < 0 ? ERRNO : 0));
+	
+    if (n != len) {
+        DBG(("WARNING: n/len mismatch: %d/%d", n, len));
+    }
 
-	if (n > 0)
-		io_inc_tail(&from->io, n);
-	else if (n == -1 && (ERRNO == EINTR || ERRNO == EWOULDBLOCK))
-		n = n;	/* Ignore EINTR and EAGAIN */
-	else if (!(to->flags & FLAG_DONT_CLOSE))
-		_shttpd_stop_stream(to);
+    if (n > 0)
+        io_inc_tail(&from->io, n);
+    else if (n == -1 && (ERRNO == EINTR || ERRNO == EWOULDBLOCK))
+        n = n;	/* Ignore EINTR and EAGAIN */
+    else if (!(to->flags & FLAG_DONT_CLOSE))
+        _shttpd_stop_stream(to);
 }
 
 
@@ -1054,7 +1068,7 @@ connection_desctructor(struct llhead *lp)
 	 * Check the "Connection: " header before we free c->request
 	 * If it its 'keep-alive', then do not close the connection
 	 */
-  do_close = (c->ch.connection._v.v_vec.len >= vec.len &&
+    do_close = (c->ch.connection._v.v_vec.len >= vec.len &&
     !_shttpd_strncasecmp(vec.ptr,c->ch.connection._v.v_vec.ptr,vec.len)) ||
 	    (c->major_version < 1 ||
 	    (c->major_version >= 1 && c->minor_version < 1));
@@ -1078,13 +1092,13 @@ connection_desctructor(struct llhead *lp)
 		if (io_data_len(&c->rem.io) > 0)
 			process_connection(c, 0, 0);
 	} else {
-		if (c->rem.io_class != NULL)
-			c->rem.io_class->close(&c->rem);
-
 		LL_DEL(&c->link);
 		c->worker->num_conns--;
 		assert(c->worker->num_conns >= 0);
 
+		if (c->rem.io_class != NULL)
+			c->rem.io_class->close(&c->rem);
+		
 		free(c);
 	}
 }
@@ -1286,9 +1300,10 @@ void shutdown_poll(struct shttpd_ctx *ctx)
 {
 	struct llhead	*lp;
 	struct listener	*l;
-
+#ifdef _WIN32
     if( g_hWaitEvent )
         SetEvent(g_hWaitEvent);
+#endif// _WIN32
 
 	LL_FOREACH(&ctx->listeners, lp) {
 		l = LL_ENTRY(lp, struct listener, link);
@@ -1619,7 +1634,7 @@ static int set_elog(struct shttpd_ctx *ctx, const char *path) {
 	return (open_log_file(&ctx->error_log, path));
 }
 
-static void show_cfg_page(struct shttpd_arg *arg);
+static void show_cfg_page(void *arg);
 
 static int
 set_cfg_uri(struct shttpd_ctx *ctx, const char *uri)
@@ -1802,8 +1817,9 @@ const char* shttpd_get_index_names(struct shttpd_ctx *ctx) {
 }
 
 static void
-show_cfg_page(struct shttpd_arg *arg)
+show_cfg_page(void *a)
 {
+    struct shttpd_arg *arg = (struct shttpd_arg *)a;
 	struct shttpd_ctx	*ctx = arg->user_data;
 	char			opt_name[20], value[BUFSIZ];
 	const struct opt	*o;

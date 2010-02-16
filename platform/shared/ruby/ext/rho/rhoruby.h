@@ -31,6 +31,7 @@ void RhoRubyStart();
 void RhoRubyInitApp();
 //void RhoRubyThreadStart();
 //void RhoRubyThreadStop();
+void rho_ruby_activateApp();
 
 VALUE getnil();	
 VALUE createHash();
@@ -48,13 +49,28 @@ VALUE callServeIndex(char* index_name);
 
 void RhoRubyStop();
 
-const char* RhoGetRootPath();
-
+//const char* RhoGetRootPath();
+VALUE rho_ruby_get_NIL();
 VALUE rho_ruby_create_array();
 VALUE rho_ruby_create_string(const char* szVal);
 void rho_ruby_add_to_array(VALUE ar, VALUE val);
 
 char* RhoRuby_getRhoDBVersion();
+
+typedef void rho_eachstr_func(const char*, const char*, void*);
+void rho_ruby_enum_strhash(VALUE hash, rho_eachstr_func *, void* data);
+void rho_ruby_set_const(const char* szName, const char* szVal);
+
+struct CRhoRubyStringOrInt 
+{
+    const char* m_szStr;
+    uint64__    m_nInt;
+};
+
+struct CRhoRubyStringOrInt rho_ruby_getstringorint(VALUE val);
+
+const char* rho_ruby_getMessageText(const char* szName);
+const char* rho_ruby_getErrorText(int nError);
 
 #if defined(__cplusplus)
 }

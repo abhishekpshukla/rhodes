@@ -1546,12 +1546,18 @@ static VALUE mSyncEngine;
 
 
 /* Put header files here or function declarations like below */
-	extern void rho_sync_doSyncAllSources(int show_status_popup);
-	#define dosync_source rho_sync_doSyncSource
-	extern void rho_sync_doSyncSource(int source_id,int show_status_popup);
-	#define dosearch_source rho_sync_doSearchSource
-	extern void rho_sync_doSearchSource(int source_id, const char *from, const char *params, int sync_changes, int nProgressStep);
 	#define dosync rho_sync_doSyncAllSources
+	extern void rho_sync_doSyncAllSources(int show_status_popup);
+	
+	#define dosync_source rho_sync_doSyncSource
+	extern void rho_sync_doSyncSource(VALUE source_id,int show_status_popup);
+	
+	#define dosync_source_byurl rho_sync_doSyncSourceByUrl
+	extern void rho_sync_doSyncSourceByUrl(const char * source_url);
+	
+	#define dosearch_source rho_sync_doSearchSource
+	extern void rho_sync_doSearchSource(int source_id, const char *from, const char *params, int sync_changes, int nProgressStep, const char* callback, const char* callback_params);
+	
 	extern void rho_sync_lock();
 	#define lock_sync_mutex rho_sync_lock
 	extern void rho_sync_unlock();
@@ -1590,6 +1596,14 @@ static VALUE mSyncEngine;
 
     extern void  rho_sync_set_pagesize(int pagesize);
     #define set_pagesize rho_sync_set_pagesize
+
+	extern void rho_sync_set_initial_notification(const char *url, char* params);
+	#define set_initial_notification rho_sync_set_initial_notification
+	extern void rho_sync_clear_initial_notification();
+	#define clear_initial_notification rho_sync_clear_initial_notification
+
+	extern void rho_sync_set_threaded_mode(int b);
+	#define set_threaded_mode rho_sync_set_threaded_mode
 	
 	#if !defined(bool)
 	#define bool int
@@ -1773,10 +1787,8 @@ fail:
 
 SWIGINTERN VALUE
 _wrap_dosync_source(int argc, VALUE *argv, VALUE self) {
-  int arg1 ;
+  VALUE arg1 = (VALUE) 0 ;
   bool arg2 ;
-  int val1 ;
-  int ecode1 = 0 ;
   bool val2 ;
   int ecode2 = 0 ;
   
@@ -1786,11 +1798,7 @@ _wrap_dosync_source(int argc, VALUE *argv, VALUE self) {
   if ((argc < 1) || (argc > 2)) {
     rb_raise(rb_eArgError, "wrong # of arguments(%d for 1)",argc); SWIG_fail;
   }
-  ecode1 = SWIG_AsVal_int(argv[0], &val1);
-  if (!SWIG_IsOK(ecode1)) {
-    SWIG_exception_fail(SWIG_ArgError(ecode1), "in method '" "dosync_source" "', argument " "1"" of type '" "int""'");
-  } 
-  arg1 = (int)(val1);
+  arg1 = argv[0];
   if (argc > 1) {
     ecode2 = SWIG_AsVal_bool(argv[1], &val2);
     if (!SWIG_IsOK(ecode2)) {
@@ -1806,12 +1814,38 @@ fail:
 
 
 SWIGINTERN VALUE
+_wrap_dosync_source_byurl(int argc, VALUE *argv, VALUE self) {
+  char *arg1 = (char *) 0 ;
+  int res1 ;
+  char *buf1 = 0 ;
+  int alloc1 = 0 ;
+  
+  if ((argc < 1) || (argc > 1)) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 1)",argc); SWIG_fail;
+  }
+  res1 = SWIG_AsCharPtrAndSize(argv[0], &buf1, NULL, &alloc1);
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "dosync_source_byurl" "', argument " "1"" of type '" "char const *""'");
+  }
+  arg1 = (char *)(buf1);
+  dosync_source_byurl((char const *)arg1);
+  if (alloc1 == SWIG_NEWOBJ) free((char*)buf1);
+  return Qnil;
+fail:
+  if (alloc1 == SWIG_NEWOBJ) free((char*)buf1);
+  return Qnil;
+}
+
+
+SWIGINTERN VALUE
 _wrap_dosearch_source(int argc, VALUE *argv, VALUE self) {
   int arg1 ;
   char *arg2 = (char *) 0 ;
   char *arg3 = (char *) 0 ;
   bool arg4 ;
   int arg5 ;
+  char *arg6 = (char *) 0 ;
+  char *arg7 = (char *) 0 ;
   int val1 ;
   int ecode1 = 0 ;
   int res2 ;
@@ -1824,9 +1858,15 @@ _wrap_dosearch_source(int argc, VALUE *argv, VALUE self) {
   int ecode4 = 0 ;
   int val5 ;
   int ecode5 = 0 ;
+  int res6 ;
+  char *buf6 = 0 ;
+  int alloc6 = 0 ;
+  int res7 ;
+  char *buf7 = 0 ;
+  int alloc7 = 0 ;
   
-  if ((argc < 5) || (argc > 5)) {
-    rb_raise(rb_eArgError, "wrong # of arguments(%d for 5)",argc); SWIG_fail;
+  if ((argc < 7) || (argc > 7)) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 7)",argc); SWIG_fail;
   }
   ecode1 = SWIG_AsVal_int(argv[0], &val1);
   if (!SWIG_IsOK(ecode1)) {
@@ -1853,13 +1893,27 @@ _wrap_dosearch_source(int argc, VALUE *argv, VALUE self) {
     SWIG_exception_fail(SWIG_ArgError(ecode5), "in method '" "dosearch_source" "', argument " "5"" of type '" "int""'");
   } 
   arg5 = (int)(val5);
-  dosearch_source(arg1,(char const *)arg2,(char const *)arg3,arg4,arg5);
+  res6 = SWIG_AsCharPtrAndSize(argv[5], &buf6, NULL, &alloc6);
+  if (!SWIG_IsOK(res6)) {
+    SWIG_exception_fail(SWIG_ArgError(res6), "in method '" "dosearch_source" "', argument " "6"" of type '" "char const *""'");
+  }
+  arg6 = (char *)(buf6);
+  res7 = SWIG_AsCharPtrAndSize(argv[6], &buf7, NULL, &alloc7);
+  if (!SWIG_IsOK(res7)) {
+    SWIG_exception_fail(SWIG_ArgError(res7), "in method '" "dosearch_source" "', argument " "7"" of type '" "char const *""'");
+  }
+  arg7 = (char *)(buf7);
+  dosearch_source(arg1,(char const *)arg2,(char const *)arg3,arg4,arg5,(char const *)arg6,(char const *)arg7);
   if (alloc2 == SWIG_NEWOBJ) free((char*)buf2);
   if (alloc3 == SWIG_NEWOBJ) free((char*)buf3);
+  if (alloc6 == SWIG_NEWOBJ) free((char*)buf6);
+  if (alloc7 == SWIG_NEWOBJ) free((char*)buf7);
   return Qnil;
 fail:
   if (alloc2 == SWIG_NEWOBJ) free((char*)buf2);
   if (alloc3 == SWIG_NEWOBJ) free((char*)buf3);
+  if (alloc6 == SWIG_NEWOBJ) free((char*)buf6);
+  if (alloc7 == SWIG_NEWOBJ) free((char*)buf7);
   return Qnil;
 }
 
@@ -2236,6 +2290,74 @@ fail:
 }
 
 
+SWIGINTERN VALUE
+_wrap_set_initial_notification(int argc, VALUE *argv, VALUE self) {
+  char *arg1 = (char *) 0 ;
+  char *arg2 = (char *) 0 ;
+  int res1 ;
+  char *buf1 = 0 ;
+  int alloc1 = 0 ;
+  int res2 ;
+  char *buf2 = 0 ;
+  int alloc2 = 0 ;
+  
+  if ((argc < 2) || (argc > 2)) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 2)",argc); SWIG_fail;
+  }
+  res1 = SWIG_AsCharPtrAndSize(argv[0], &buf1, NULL, &alloc1);
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "set_initial_notification" "', argument " "1"" of type '" "char const *""'");
+  }
+  arg1 = (char *)(buf1);
+  res2 = SWIG_AsCharPtrAndSize(argv[1], &buf2, NULL, &alloc2);
+  if (!SWIG_IsOK(res2)) {
+    SWIG_exception_fail(SWIG_ArgError(res2), "in method '" "set_initial_notification" "', argument " "2"" of type '" "char *""'");
+  }
+  arg2 = (char *)(buf2);
+  set_initial_notification((char const *)arg1,arg2);
+  if (alloc1 == SWIG_NEWOBJ) free((char*)buf1);
+  if (alloc2 == SWIG_NEWOBJ) free((char*)buf2);
+  return Qnil;
+fail:
+  if (alloc1 == SWIG_NEWOBJ) free((char*)buf1);
+  if (alloc2 == SWIG_NEWOBJ) free((char*)buf2);
+  return Qnil;
+}
+
+
+SWIGINTERN VALUE
+_wrap_clear_initial_notification(int argc, VALUE *argv, VALUE self) {
+  if ((argc < 0) || (argc > 0)) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
+  }
+  clear_initial_notification();
+  return Qnil;
+fail:
+  return Qnil;
+}
+
+
+SWIGINTERN VALUE
+_wrap_set_threaded_mode(int argc, VALUE *argv, VALUE self) {
+  bool arg1 ;
+  bool val1 ;
+  int ecode1 = 0 ;
+  
+  if ((argc < 1) || (argc > 1)) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 1)",argc); SWIG_fail;
+  }
+  ecode1 = SWIG_AsVal_bool(argv[0], &val1);
+  if (!SWIG_IsOK(ecode1)) {
+    SWIG_exception_fail(SWIG_ArgError(ecode1), "in method '" "set_threaded_mode" "', argument " "1"" of type '" "bool""'");
+  } 
+  arg1 = (bool)(val1);
+  set_threaded_mode(arg1);
+  return Qnil;
+fail:
+  return Qnil;
+}
+
+
 
 /* -------- TYPE CONVERSION AND EQUIVALENCE RULES (BEGIN) -------- */
 
@@ -2500,6 +2622,7 @@ SWIGEXPORT void Init_SyncEngine(void) {
   SWIG_RubyInitializeTrackings();
   rb_define_module_function(mSyncEngine, "dosync", _wrap_dosync, -1);
   rb_define_module_function(mSyncEngine, "dosync_source", _wrap_dosync_source, -1);
+  rb_define_module_function(mSyncEngine, "dosync_source_byurl", _wrap_dosync_source_byurl, -1);
   rb_define_module_function(mSyncEngine, "dosearch_source", _wrap_dosearch_source, -1);
   rb_define_module_function(mSyncEngine, "lock_sync_mutex", _wrap_lock_sync_mutex, -1);
   rb_define_module_function(mSyncEngine, "unlock_sync_mutex", _wrap_unlock_sync_mutex, -1);
@@ -2518,5 +2641,8 @@ SWIGEXPORT void Init_SyncEngine(void) {
   rb_define_module_function(mSyncEngine, "get_lastsync_objectcount", _wrap_get_lastsync_objectcount, -1);
   rb_define_module_function(mSyncEngine, "get_pagesize", _wrap_get_pagesize, -1);
   rb_define_module_function(mSyncEngine, "set_pagesize", _wrap_set_pagesize, -1);
+  rb_define_module_function(mSyncEngine, "set_initial_notification", _wrap_set_initial_notification, -1);
+  rb_define_module_function(mSyncEngine, "clear_initial_notification", _wrap_clear_initial_notification, -1);
+  rb_define_module_function(mSyncEngine, "set_threaded_mode", _wrap_set_threaded_mode, -1);
 }
 

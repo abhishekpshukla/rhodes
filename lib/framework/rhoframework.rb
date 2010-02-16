@@ -1,7 +1,14 @@
 begin
+
+    #require 'net/http'
+    #puts 'NET REQUIRE'
+    #Net::HTTP.get_print 'www.gazeta.ru', '/index.html'
+
+    #puts 'NET FINISH'
+    
     require 'rational'
-    require 'date/format'
-    require 'time'
+    #require 'date/format'
+    #require 'time'
 
    # require 'sqlite3/constants'
    # require 'sqlite3/errors'
@@ -25,9 +32,12 @@ begin
     
     require 'rhom/rhom'
     require 'rhom'
-    
+
     require 'rho/rhoapplication'
-    
+
+    require 'rho/rhocontroller'    
+    require 'rho/render'
+
     require 'rho/rho'
     require 'rho'
 	

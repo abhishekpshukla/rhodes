@@ -19,7 +19,6 @@
 #include "llist.h"
 #include "io.h"
 #include "md5.h"
-#include "config.h"
 #include "shttpd.h"
 
 #include "common/RhoDefs.h"
@@ -31,7 +30,7 @@ extern void __shttpd_trace(const char* format, ... );
 //do { printf x ; putchar('\n'); fflush(stdout); } while (0)
 #else
 #define	DBG(x)
-#endif  RHO_DEBUG 
+#endif // RHO_DEBUG 
 
 /*
  * Darwin prior to 7.0 and Win32 do not have socklen_t

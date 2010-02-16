@@ -18,6 +18,23 @@
 #else
 #endif
 
+#ifdef __cplusplus
+#define RHO_GLOBAL extern "C"
+#define RHO_LOCAL
+#else
+#define RHO_GLOBAL extern
+#define RHO_LOCAL
+#endif
+
+#define RHO_ABORT(x) \
+  do { \
+    assert(!(x)); \
+    abort(); \
+  } while( __LINE__ != -1 )
+
+#define RHO_USE_OWN_HTTPD
+#define RHO_HTTPD_COMMON_IMPL
+
 #ifdef OS_MACOSX
 #include <TargetConditionals.h>
 #endif //OS_MACOSX
@@ -47,8 +64,15 @@ typedef int LogSeverity;
 #define _CRT_NON_CONFORMING_SWPRINTFS 1
 #endif //_CRT_NON_CONFORMING_SWPRINTFS
 
+#ifndef _CRT_NONSTDC_NO_WARNINGS
+#define _CRT_NONSTDC_NO_WARNINGS 1
+#endif //_CRT_NONSTDC_NO_WARNINGS
+
 #endif
 
+#if !defined(OS_ANDROID)
 #include "tcmalloc/rhomem.h"
+#endif
 
 #endif //_RHODEFS_H_
+

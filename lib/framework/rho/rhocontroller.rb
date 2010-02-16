@@ -6,6 +6,24 @@ module Rho
   class RhoController
   	attr_accessor :menu
 
+    @@rholog = RhoLog.new
+
+    def rho_info(str)
+      @@rholog.info("RHO " + self.class.to_s, str)
+    end
+
+    def rho_error(str)
+      @@rholog.error("RHO " + self.class.to_s, str)
+    end
+
+    def app_info(str)
+      @@rholog.info("APP " + self.class.to_s, str)
+    end
+
+    def app_error(str)
+      @@rholog.error("APP " + self.class.to_s, str)
+    end
+
     def default_action
       return Hash['GET','show','PUT','update','POST','update',
         'DELETE','delete'][@request['request-method']] unless @request['id'].nil?
@@ -16,9 +34,39 @@ module Rho
       @request, @response = req, res
       @object_mapping = object_mapping
       @params = RhoSupport::query_params req
-      res = send req['action'].nil? ? default_action : req['action']
-      application.set_menu(@menu)
+      @rendered = false
+      @redirected = false
+
+      if @params['rho_callback'] && @params['__rho_object']
+        hashObjs = @params['__rho_object']
+        
+        hashObjs.each do |name,index|
+            @params[name] = __rhoGetCallbackObject(index.to_i())
+        end
+        
+        @params.delete('__rho_object')
+      end
+      
+      act = req['action'].nil? ? default_action : req['action']
+      if self.respond_to?(act)
+        res = send req['action'].nil? ? default_action : req['action']
+      else
+        rho_error( "Action '#{act}' does not exist in controller or has private access."  )
+        called_action = @request['action'].nil? ? default_action : @request['action']
+        unless File.exist?(@request[:modelpath]+called_action.to_s+'_erb.iseq')
+          res = render :string => "<font size=\"+4\"><h2>404 Not Found.</h2>The action <i>#{called_action}</i> does not have a view or a controller</font>"
+        end
+      end
+      
+      if @params['rho_callback']
+        res = "" unless res.is_a?(String)
+      else
+        res = render unless @rendered or @redirected
+      end
+        
+      application.set_menu(@menu, @back_action)
   	  @menu = nil
+  	  @back_action = nil;
   	  res
     end
 
@@ -29,6 +77,12 @@ module Rho
     alias xhr? :xml_http_request?
 
     def redirect(url_params = {},options = {})
+      if @params['rho_callback']
+        rho_error( "redirect call in callback. Call WebView.navigate instead" ) 
+        return ""
+      end  
+    
+      @redirected = true
       @response['status'] = options['status'] || 302 
       @response['headers']['Location'] = url_for(url_params)
       @response['message'] = options['message'] || 'Moved temporarily'

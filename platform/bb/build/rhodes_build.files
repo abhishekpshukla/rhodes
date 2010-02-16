@@ -1,9 +1,12 @@
 platform\bb\rhodes\src\com\rho\Jsr75File.java
 platform\bb\rhodes\src\com\rho\location\GeoLocationAsync.java
 platform\bb\rhodes\src\com\rho\location\GeoLocationImpl.java
+platform\bb\rhodes\src\com\rho\net\BaseSocket.java
 platform\bb\rhodes\src\com\rho\net\bb\BBHttpConnection.java
 platform\bb\rhodes\src\com\rho\net\bb\NativeBBHttpConnection.java
 platform\bb\rhodes\src\com\rho\net\NetworkAccess.java
+platform\bb\rhodes\src\com\rho\net\SSLSocket.java
+platform\bb\rhodes\src\com\rho\net\TCPSocket.java
 platform\bb\rhodes\src\com\rho\RhoRubyHelper.java
 platform\bb\rhodes\src\com\rho\Version.java
 platform\bb\rhodes\src\rhomobile\camera\Camera.java
@@ -24,3 +27,10 @@ platform\bb\rhodes\src\rhomobile\datetime\DateTimePicker.java
 platform\bb\rhodes\src\rhomobile\datetime\DateTimeScreen.java
 platform\bb\rhodes\src\rhomobile\RingtoneManager.java
 platform\bb\rhodes\src\rhomobile\NativeBar.java
+platform\bb\rhodes\src\rhomobile\mapview\Annotation.java
+platform\bb\rhodes\src\rhomobile\mapview\GoogleMapField.java
+platform\bb\rhodes\src\rhomobile\mapview\GoogleMapProvider.java
+platform\bb\rhodes\src\rhomobile\mapview\MapProvider.java
+platform\bb\rhodes\src\rhomobile\mapview\MapView.java
+platform\bb\rhodes\src\rhomobile\mapview\MapViewScreen.java
+platform\bb\rhodes\src\rhomobile\mapview\RhoMapField.java

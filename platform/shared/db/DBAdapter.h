@@ -9,13 +9,13 @@ namespace db{
 
 class CDBAdapter
 {
-    String   m_strDbPath, m_strDbVer, m_strDbVerPath;
     sqlite3* m_dbHandle;
+    String   m_strDbPath, m_strDbVer, m_strDbVerPath;
     Hashtable<String,sqlite3_stmt*> m_mapStatements;
     common::CMutex m_mxDB;
     common::CMutex m_mxTransDB;
-	boolean m_bInsideTransaction;
     boolean m_bUnlockDB;
+    boolean m_bInsideTransaction;
     CDBAttrManager m_attrMgr;
 
     struct CDBVersion
@@ -47,6 +47,7 @@ public:
     void Lock(){ m_mxDB.Lock(); }
     void Unlock(){ setUnlockDB(false); m_mxDB.Unlock(); }
     boolean isInsideTransaction(){ return m_bInsideTransaction; }
+    const String& getDBPath(){ return m_strDbPath; }
 
     void bind(sqlite3_stmt* st, int nPos, int val)
     {
@@ -197,8 +198,8 @@ public:
     void endTransaction();
     void rollback();
     void destroy_table(String strTable);
+    void setInitialSyncDB(String fDataName);
 
-    static String makeBlobFolderName();
 //private:
     DBResultPtr executeStatement(common::CAutoPtr<CDBResult>& res);
 

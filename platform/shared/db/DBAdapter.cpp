@@ -4,9 +4,7 @@
 #include "common/RhoFile.h"
 #include "common/RhoFilePath.h"
 #include "common/RhoConf.h"
-
-extern "C" const char* RhoGetRootPath();
-extern "C" const char* RhoGetRelativeBlobsPath();
+#include "common/RhodesApp.h"
 
 namespace rho{
 namespace db{
@@ -29,8 +27,7 @@ void SyncBlob_DeleteCallback(sqlite3_context* dbContext, int nArgs, sqlite3_valu
     type = (char*)sqlite3_value_text(*(ppArgs+1));
     if ( type && strcmp(type,"blob.file") == 0 )
     {
-        String strFilePath = RhoGetRootPath();
-        strFilePath += "apps";
+        String strFilePath = RHODESAPP().getRhoRootPath()+ "apps";
         strFilePath += (char*)sqlite3_value_text(*(ppArgs));
         CRhoFile::deleteFile(strFilePath.c_str());
     }
@@ -46,12 +43,6 @@ void SyncBlob_InsertCallback(sqlite3_context* dbContext, int nArgs, sqlite3_valu
     sync::CSyncThread::getDBAdapter().getAttrMgr().add( sqlite3_value_int(*(ppArgs)), (char*)sqlite3_value_text(*(ppArgs+1)) );
 }
 
-/*static*/ String CDBAdapter::makeBlobFolderName()
-{
-    String strBlobPath = RhoGetRootPath();
-    return strBlobPath + RhoGetRelativeBlobsPath();
-}
-
 boolean CDBAdapter::checkDbError(int rc)
 {
     if ( rc == SQLITE_OK || rc == SQLITE_ROW || rc == SQLITE_DONE )
@@ -60,7 +51,7 @@ boolean CDBAdapter::checkDbError(int rc)
     const char * szErrMsg = sqlite3_errmsg(m_dbHandle);
     int nErrCode = sqlite3_errcode(m_dbHandle);
 
-    LOG(ERROR)+"DB query failed. Error code: " + nErrCode + ";Message: " + szErrMsg;
+    LOG(ERROR)+"DB query failed. Error code: " + nErrCode + "; Message: " + szErrMsg;
 
     return false;
 }
@@ -77,7 +68,7 @@ boolean CDBAdapter::checkDbErrorEx(int rc, rho::db::CDBResult& res)
     if ( nErrCode == SQLITE_CONSTRAINT && res.getReportNonUnique() )
         return true;
 
-    LOG(ERROR)+"DB query failed. Error code: " + nErrCode + ";Message: " + szErrMsg;
+    LOG(ERROR)+"DB query failed. rc: " + rc + "; Error code: " + nErrCode + "; Message: " + szErrMsg;
     return false;
 }
 
@@ -140,8 +131,7 @@ void CDBAdapter::checkDBVersion(String& strRhoDBVer)
         CRhoFile::deleteFile(m_strDbPath.c_str());
         CRhoFile::deleteFile((m_strDbPath+"-journal").c_str());
 
-        String strBlobFolderName = makeBlobFolderName();
-        CRhoFile::deleteFilesInFolder(strBlobFolderName.c_str());
+        CRhoFile::deleteFilesInFolder(RHODESAPP().getBlobsDirPath().c_str());
 
         writeDBVersion( CDBVersion(strRhoDBVer, strAppDBVer) );
 	}
@@ -292,14 +282,63 @@ void CDBAdapter::destroy_table(String strTable)
     String dbOldName = m_strDbPath;
     close();
 
-    String strBlobFolderName = makeBlobFolderName();
-    CRhoFile::deleteFilesInFolder(strBlobFolderName.c_str());
+    CRhoFile::deleteFilesInFolder(RHODESAPP().getBlobsDirPath().c_str());
 
     CRhoFile::deleteFile(dbOldName.c_str());
     CRhoFile::renameFile(dbNewName.c_str(),dbOldName.c_str());
     open( dbOldName, m_strDbVer, false );
 }
 
+void CDBAdapter::setInitialSyncDB(String fDataName)
+{
+    CDBAdapter db;
+    db.open( fDataName, m_strDbVer, true );
+
+    db.startTransaction();
+
+    //copy client_info
+	{
+		DBResult( res, executeSQL("SELECT * from client_info") );
+		String strInsert = "";
+		int rc = 0;
+	    for ( ; !res.isEnd(); res.next() )
+	    {
+	    	sqlite3_stmt* stInsert = createInsertStatement(res, "client_info", db, strInsert);
+
+            if (stInsert)
+            {
+                rc = sqlite3_step(stInsert);
+                checkDbError(rc);
+                sqlite3_finalize(stInsert);
+            }
+	    }
+	}
+    //copy sources
+	{
+		DBResult( res, executeSQL("SELECT name, source_url,priority,session from sources") );
+	    for ( ; !res.isEnd(); res.next() )
+	    {
+	    	String strName = res.getStringByIdx(0);
+	    	
+            db.executeSQL("UPDATE sources SET source_url=?,priority=?,session=? where name=?", 
+                res.getStringByIdx(1), res.getIntByIdx(2), res.getStringByIdx(3), strName ); 
+	    }
+	}
+
+    db.endTransaction();
+    db.close();
+
+    String dbOldName = m_strDbPath;
+    close();
+
+    CRhoFile::deleteFilesInFolder(RHODESAPP().getBlobsDirPath().c_str());
+
+    CRhoFile::deleteFile(dbOldName.c_str());
+    CRhoFile::renameFile(fDataName.c_str(),dbOldName.c_str());
+    open( dbOldName, m_strDbVer, false );
+}
+
+/*
 static const char* g_szDbSchema = 
     "CREATE TABLE client_info ("
     " client_id VARCHAR(255) PRIMARY KEY,"
@@ -326,17 +365,19 @@ static const char* g_szDbSchema =
     " sent int default 0,"
     " main_id INTEGER default 0);"
     "CREATE TABLE sources ("
-    " id INTEGER PRIMARY KEY,"
-    " token INTEGER default NULL,"
-    " source_id int default -1,"
-    " source_url VARCHAR(255) default NULL,"
+    //" id INTEGER PRIMARY KEY,"
+    " source_url VARCHAR(255) PRIMARY KEY,"
+    " source_id int,"
     " name VARCHAR(255) default NULL,"
+    " token INTEGER default NULL,"
+    " priority INTEGER,"
     " session VARCHAR(255) default NULL,"
     " last_updated int default 0,"
     " last_inserted_size int default 0,"
     " last_deleted_size int default 0,"
     " last_sync_duration int default 0,"
     " last_sync_success int default 0,"
+    " backend_refresh_time int default 0,"
     " source_attribs varchar default NULL);"
     //"CREATE INDEX by_attrib_utype on object_values (attrib,update_type);"
     //"CREATE INDEX by_src_type ON object_values (source_id, attrib_type, object);"
@@ -355,11 +396,29 @@ static const char* g_szDbSchema =
             "SELECT rhoOnInsertObjectRecord( NEW.source_id, NEW.attrib );"
         "END;"
     ";";
+*/
 
 void CDBAdapter::createSchema()
 {
     char* errmsg = 0;
-    int rc = sqlite3_exec(m_dbHandle, g_szDbSchema,  NULL, NULL, &errmsg);
+    CFilePath oPath(m_strDbPath);
+
+    String strSqlScript, strSqlTriggers;
+    CRhoFile::loadTextFile(oPath.changeBaseName("syncdb.schema").c_str(), strSqlScript);
+    CRhoFile::loadTextFile(oPath.changeBaseName("syncdb.triggers").c_str(), strSqlTriggers);
+
+    if ( strSqlScript.length() == 0 )
+    {
+        LOG(ERROR)+"createSchema failed. Cannot read schema file: " + strSqlScript;
+        return;
+    }
+    if ( strSqlTriggers.length() == 0 )
+    {
+        LOG(ERROR)+"createSchema failed. Cannot read triggers file: " + strSqlTriggers;
+        return;
+    }
+
+    int rc = sqlite3_exec(m_dbHandle, (strSqlScript+strSqlTriggers).c_str(),  NULL, NULL, &errmsg);
 
     if ( rc != SQLITE_OK )
         LOG(ERROR)+"createSchema failed. Error code: " + rc + ";Message: " + (errmsg ? errmsg : "");

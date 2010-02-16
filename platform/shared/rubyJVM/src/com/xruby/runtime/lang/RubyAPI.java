@@ -19,6 +19,7 @@ import com.xruby.runtime.builtin.RubyMethodValue;
 import com.xruby.runtime.builtin.RubyProc;
 import com.xruby.runtime.builtin.RubyString;
 //import com.xruby.runtime.javasupport.JavaClass;
+import com.xruby.runtime.builtin.RubyTypesUtil;
 
 public class RubyAPI {
 	private static final RhoLogger LOG = RhoLogger.RHO_STRIP_LOG ? new RhoEmptyLogger() : 
@@ -81,6 +82,11 @@ public class RubyAPI {
         return RubyAPI.callPublicOneArgMethod(value1, value2, null, RubyID.equalID).isTrue();
     }
 
+    public static boolean testCaseEqualNotNil(RubyValue value1, RubyValue value2) 
+    {
+        return value1.isTrue();
+    }
+    
     public static boolean testExceptionType(RubyArray classes_to_compare, RubyException e) {
         RubyValue value = e.getRubyValue();
 //        for (RubyValue class_to_compare : classes_to_compare) {
@@ -146,6 +152,27 @@ public class RubyAPI {
         return ObjectFactory.createString("method");
     }
 
+    //e.g. defined? @m    
+    public static RubyValue isDefinedInstanceVariable(RubyValue receiver, String method_name) {
+        RubyID mid = RubyID.intern(method_name);
+        RubyValue var = receiver.getInstanceVariable(mid);
+        if (null == var || var == RubyConstant.QNIL) {
+            return RubyConstant.QNIL;
+        }
+
+        return ObjectFactory.createString("instance-variable");
+    }
+    
+    public static RubyValue isDefinedNonPrivateMethod(RubyValue receiver, String method_name) {
+        RubyID mid = RubyID.intern(method_name);
+        RubyMethod m = receiver.findMethod(mid);
+        if (null == m || UndefMethod.isUndef(m) || m.getAccess() == RubyMethod.PRIVATE) {
+            return RubyConstant.QNIL;
+        }
+
+        return ObjectFactory.createString("method");
+    }
+    
     public static RubyValue isDefinedYield(RubyBlock block) {
         if (null == block) {
             return RubyConstant.QNIL;
@@ -170,11 +197,36 @@ public class RubyAPI {
         throw new RubyException(RubyRuntime.NoMethodErrorClass, "undefined method '" + mid.toString() + "' for " + klass.getName());
     }
 
-    private static RubyValue processException( Throwable e, RubyValue receiver, RubyID mid )throws RubyException
+    private static RubyValue processException( Exception e, RubyValue receiver, RubyID mid )throws RubyException
     {
-		String className = receiver.getRubyClass() != null ? receiver.getRubyClass().getName() : "Unknown";
-		String strErrMsg = "Call of " + className + "." + mid.toString() + " failed."; 
-		LOG.ERROR( strErrMsg, e);
+    	if ( e instanceof RubyException )
+    	{
+    		RubyException exc = (RubyException)e;
+    		if ( exc.getRubyValue().getRubyClass() == RubyRuntime.EOFErrorClass )
+    			throw exc;
+    	}
+    	
+		String className = "Unknown::";
+		
+		if ( receiver instanceof RubyClass)
+			className = ((RubyClass)receiver).getName() + "::";
+		else
+		{
+			if ( receiver.getRubyClass() != null )
+				className = receiver.getRubyClass().getName() + ".";
+		}
+		
+		String strTraceMsg = className + mid.toString();
+		String strErrMsg = strTraceMsg + " failed.";
+		
+		if ( e instanceof RubyException )
+		{
+			RubyException exc = (RubyException)e;
+			exc.getRubyValue().addBacktrace(strTraceMsg);
+			LOG.ERROR( strTraceMsg + " failed: " + e.getMessage() );
+		}else
+			LOG.ERROR( strErrMsg, e);
+		
 		throw (e instanceof RubyException ? (RubyException)e : new RubyException( strErrMsg + e.getMessage()));
     }
     
@@ -189,7 +241,7 @@ public class RubyAPI {
 	        }
 	
 	        return callMethodMissing(receiver, args, block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -205,7 +257,7 @@ public class RubyAPI {
 	        }
 	
 	        return callMethodMissing(receiver, null, block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -224,7 +276,7 @@ public class RubyAPI {
 	        }
 	
 	        return callMethodMissing(receiver, new RubyArray(arg), block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -241,7 +293,7 @@ public class RubyAPI {
 	        }
 	
 	        return callMethodMissing(receiver, new RubyArray(arg0, arg1), block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -261,7 +313,7 @@ public class RubyAPI {
 	        }
 	
 	        return callMethodMissing(receiver, null, block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -280,7 +332,7 @@ public class RubyAPI {
 	    	}
 	
 	    	return callMethodMissing(receiver, new RubyArray(arg), block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -297,7 +349,7 @@ public class RubyAPI {
 	    	}
 	
 	    	return callMethodMissing(receiver, new RubyArray(arg0, arg1), block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -316,7 +368,7 @@ public class RubyAPI {
 	        }
 	
 	        return callMethodMissing(receiver, args, block, mid);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mid);
 		}
@@ -333,7 +385,7 @@ public class RubyAPI {
 	        }
 	
 	        return m.invoke(receiver, block);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mbb.getID());
 		}
@@ -351,7 +403,7 @@ public class RubyAPI {
 	        }
 	
 	        return m.invoke(receiver, arg, block);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mbb.getID());
 		}
@@ -369,7 +421,7 @@ public class RubyAPI {
 	        }
 	
 	        return m.invoke(receiver, arg0, arg1, block);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mbb.getID());
 		}
@@ -387,7 +439,7 @@ public class RubyAPI {
 	        }
 	
 	        return m.invoke(receiver, args, block);
-    	}catch(Throwable e)
+    	}catch(Exception e)
 		{
     		return processException(e,receiver,mbb.getID());
 		}

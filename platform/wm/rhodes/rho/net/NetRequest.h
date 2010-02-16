@@ -16,20 +16,20 @@ public:
     CNetRequest(void) : m_pCurNetRequestImpl(null), m_bCancel(false){}
     virtual ~CNetRequest(void){}
 
-    virtual INetResponse* pullData(const String& strUrl );
-    virtual INetResponse* pushData(const String& strUrl, const String& strBody);
-    virtual INetResponse* pushFile(const String& strUrl, const String& strFilePath);
-    virtual INetResponse* pullFile(const String& strUrl, const String& strFilePath);
-    virtual INetResponse* pullCookies(const String& strUrl, const String& strBody);
-    //if strUrl.length() == 0 delete all cookies if possible
-    virtual void deleteCookie(const String& strUrl);
+    virtual INetResponse* pullData(const String& strUrl, IRhoSession* oSession );
+    virtual INetResponse* pushData(const String& strUrl, const String& strBody, IRhoSession* oSession);
+    virtual INetResponse* pushFile(const String& strUrl, const String& strFilePath, IRhoSession* oSession);
+    virtual INetResponse* pullFile(const String& strUrl, const String& strFilePath, IRhoSession* oSession);
+    virtual INetResponse* pullCookies(const String& strUrl, const String& strBody, IRhoSession* oSession);
+
+    virtual INetResponse* doRequest( const char* method, const String& strUrl, const String& strBody, IRhoSession* oSession, Hashtable<String,String>* pHeaders );
 
     virtual String resolveUrl(const String& strUrl);
 
     virtual void cancel();
+    virtual boolean isCancelled(){return m_bCancel;}
 
 protected:
-    virtual INetResponse* doRequest( const char* method, const String& strUrl, const String& strBody );
 };
 
 }

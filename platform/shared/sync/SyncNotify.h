@@ -22,7 +22,11 @@ class CSyncNotify
     struct CSyncNotification
     {
         String m_strUrl, m_strParams;
-        CSyncNotification(String strUrl, String strParams) : m_strUrl(strUrl), m_strParams(strParams){}
+        boolean m_bRemoveAfterFire;
+        CSyncNotification(){m_bRemoveAfterFire = false;}
+
+        CSyncNotification(String strUrl, String strParams, boolean bRemoveAfterFire) : 
+            m_strUrl(strUrl), m_strParams(strParams), m_bRemoveAfterFire(bRemoveAfterFire){}
     };
 
 public:
@@ -41,6 +45,8 @@ private:
     static common::CMutex m_mxObjectNotify;
 
     HashtablePtr<int,CSyncNotification*> m_mapSyncNotifications;
+    HashtablePtr<int,CSyncNotification*> m_mapSearchNotifications;
+    CSyncNotification m_initialSyncNotify;
     common::CMutex m_mxSyncNotifications;
 
     net::INetRequest& getNet();
@@ -63,14 +69,23 @@ public:
 
     //Sync notifications
     void setSyncNotification(int source_id, String strUrl, String strParams );
+    void setSearchNotification(int source_id, String strUrl, String strParams );
+
     void clearSyncNotification(int source_id);
+    void clearNotification(CSyncSource& src);
 
     void onSyncSourceEnd( int nSrc, VectorPtr<CSyncSource*>& sources );
     void fireSyncNotification( CSyncSource* psrc, boolean bFinish, int nErrCode, String strMessage);
 
+    void setInitialSyncNotification(String strUrl, String strParams );//throws Exception
+    void fireInitialSyncNotification( boolean bFinish, int nErrCode );
+    void clearInitialSyncNotification();
+
     void cleanLastSyncObjectCount();
     int incLastSyncObjectCount(int nSrcID);
     int getLastSyncObjectCount(int nSrcID);
+
+    void callLoginCallback(String callback, int nErrCode, String strMessage);
 
 private:
     String makeCreateObjectErrorBody(int nSrcID);
@@ -79,6 +94,8 @@ private:
     void doFireSyncNotification( CSyncSource* psrc, boolean bFinish, int nErrCode, String strMessage);
     void reportSyncStatus(String status, int error, String strDetails);
     void fireAllSyncNotifications( boolean bFinish, int nErrCode, String strMessage, VectorPtr<CSyncSource*>& sources );
+
+    boolean callNotify(const String& strUrl, const String& strBody );
 
 };
 

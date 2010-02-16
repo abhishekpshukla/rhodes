@@ -19,11 +19,12 @@
 //#include "geolocation.h"
 //#include "SyncEngine.h"
 #include "sync/syncthread.h"
+#include "common/RhodesApp.h"
 #import "logging/RhoLog.h"
 #undef DEFAULT_LOGCATEGORY
 #define DEFAULT_LOGCATEGORY "Dispatcher"
 
-extern void _rho_map_location(char* query);
+extern void rho_map_location(char* query);
 
 char *trim(char *str)
 {
@@ -172,6 +173,7 @@ _CallApplication(HttpContextRef context, RouteRef route) {
 }
 
 extern char* GeoGetLocation();
+extern int ExecuteAppManager(HttpContextRef context, RouteRef route);
 
 int _ExecuteApp(HttpContextRef context, RouteRef route) {
 	
@@ -200,7 +202,7 @@ int _ExecuteApp(HttpContextRef context, RouteRef route) {
 					RAWLOG_INFO1("Map %s", context->_request->_query);
 					query = context->_request->_query;
 				}
-				_rho_map_location(query);
+				rho_map_location(query);
 				return HTTPSendReply(context,"");
 			}
 		}
@@ -215,7 +217,9 @@ int _ExecuteApp(HttpContextRef context, RouteRef route) {
 
 int ServeIndex(HttpContextRef context, char* index_name) {
 	RAWLOG_INFO("Calling ruby framework to serve index");
-	
+	if ( CFDataGetLength(context->_rcvdBytes) == 0)
+		rho_rhodesapp_keeplastvisitedurl(index_name);
+
 	VALUE val = callServeIndex(index_name);
 	char* res = getStringFromValue(val);
 	if (res) {
@@ -242,6 +246,9 @@ int Dispatch(HttpContextRef context) {
 	char* url = strdup(context->_request->_uri);
 	
 	if( _GetRoute(url, &route) ) {
+		if ( CFDataGetLength(context->_rcvdBytes) == 0)
+			rho_rhodesapp_keeplastvisitedurl(context->_request->_uri);
+		
 		ret = _ExecuteApp(context, &route);
 	}
 	

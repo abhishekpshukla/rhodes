@@ -13,6 +13,7 @@ import com.xruby.runtime.builtin.AttrReader;
 import com.xruby.runtime.builtin.AttrWriter;
 import com.xruby.runtime.builtin.ObjectFactory;
 import com.xruby.runtime.builtin.RubyArray;
+import com.xruby.runtime.builtin.RubyMethodValue;
 import com.xruby.runtime.lang.RubyKernelModule;
 import com.xruby.runtime.builtin.RubyProc;
 import com.xruby.runtime.builtin.RubyString;
@@ -34,6 +35,8 @@ public class RubyModule extends RubyObject {
     private RubyModule scope_ = null;//where is the module is defined under.
     protected RubyClass superclass_;
     private int current_access_mode_ = RubyMethod.PUBLIC;
+	private boolean module_methods_mode_ = false;
+
 //    protected Map/*<RubyID, RubyValue>*/ instance_varibles_ = null;
     protected Map/*<RubyID, RubyMethod>*/ methods_ = new HashMap/*<RubyID, RubyMethod>*/();
     protected Map/*<String, RubyValue>*/ constants_ = new HashMap/*<String, RubyValue>*/();
@@ -124,11 +127,17 @@ public class RubyModule extends RubyObject {
     }
 
     public RubyValue defineMethod(String name, RubyMethod m) {
-        return addMethod(RubyID.intern(name), m, this.current_access_mode_);
+    	if ( module_methods_mode_ )
+    		this.getSingletonClass().defineMethod(name, m);
+    	
+    	return addMethod(RubyID.intern(name), m, this.current_access_mode_);
     }
 
     public RubyValue defineMethod(RubyID mid, RubyMethod m) {
-        return addMethod(mid, m, this.current_access_mode_);
+    	if ( module_methods_mode_ )
+    		this.getSingletonClass().defineMethod(mid, m);
+    	
+   		return addMethod(mid, m, this.current_access_mode_);
     }
 
     public RubyValue definePrivateMethod(String name, RubyMethod m) {
@@ -777,6 +786,17 @@ public class RubyModule extends RubyObject {
         return get_instance_methods(this, args, RubyMethod.NON_PRIVATE);
     }
 
+    //@RubyLevelMethod(name="instance_method")
+    public RubyValue instance_method(RubyValue arg) 
+    {
+    	RubyMethod m = (RubyMethod)methods_.get(arg.toID());
+    	if ( m!= null )
+    		return ObjectFactory.createMethod(this, arg.toStr(), m);
+    	
+        throw new RubyException(RubyRuntime.NameErrorClass, arg.toStr() + " is undefined");
+        //return get_instance_methods(this, args, RubyMethod.NON_PRIVATE);
+    }
+    
     //@RubyLevelMethod(name="public_instance_methods")
     public RubyValue public_instance_methods(RubyArray args) {
         return get_instance_methods(this, args, RubyMethod.PUBLIC);
@@ -818,6 +838,7 @@ public class RubyModule extends RubyObject {
 
     //@RubyLevelMethod(name="module_function")
     public RubyValue module_function() {
+    	//module_methods_mode_ = true;
         return this;
     }
 
@@ -872,6 +893,20 @@ public class RubyModule extends RubyObject {
         return RubyAPI.isConstantDefined(this, s.toString());
     }
 
+    //@RubyLevelMethod(name="method_defined?")
+    public RubyValue isMethodDefined(RubyValue arg) {
+        RubySymbol s = RubyTypesUtil.convertToSymbol(arg);
+        return RubyAPI.isDefinedNonPrivateMethod(this, s.toString()) != RubyConstant.QNIL ?
+        		RubyConstant.QTRUE : RubyConstant.QFALSE;
+    }
+
+    //@RubyLevelMethod(name="method_defined?")
+    public RubyValue isPublicMethodDefined(RubyValue arg) {
+        RubySymbol s = RubyTypesUtil.convertToSymbol(arg);
+        return RubyAPI.isDefinedPublicMethod(this, this, s.toString()) != RubyConstant.QNIL ?
+        		RubyConstant.QTRUE : RubyConstant.QFALSE;
+    }
+    
     private static class RubyVarArgMethodImpl extends RubyVarArgMethod{
     	RubyBlock b_;
     	RubyVarArgMethodImpl(RubyBlock b)

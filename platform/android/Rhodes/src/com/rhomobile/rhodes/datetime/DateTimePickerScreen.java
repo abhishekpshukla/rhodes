@@ -1,42 +1,27 @@
 package com.rhomobile.rhodes.datetime;
 
-import java.io.IOException;
 import java.util.Date;
 
-import com.rho.net.IHttpConnection;
-import com.rhomobile.rhodes.AndroidHttpConnection;
 import com.rhomobile.rhodes.AndroidR;
-import com.rhomobile.rhodes.RhodesInstance;
-import com.rhomobile.rhodes.http.HttpHeader;
+import com.rhomobile.rhodes.Logger;
+import com.rhomobile.rhodes.Rhodes;
 
 import android.app.Activity;
-import android.app.DatePickerDialog;
-import android.app.Dialog;
-import android.app.TimePickerDialog;
-import android.app.DatePickerDialog.OnDateSetListener;
-import android.app.TimePickerDialog.OnTimeSetListener;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnDismissListener;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 import android.widget.DatePicker;
-import android.widget.LinearLayout;
 import android.widget.TimePicker;
 
 public class DateTimePickerScreen extends Activity {
 	
-	private static final int DIALOG_DATE_PICKER_ID = 0;
-	private static final int DIALOG_TIME_PICKER_ID = 1;
-	
-	private DateTimePickerScreen _dateTimePicker = this;
+	private static final String TAG = "DateTimePicker";
 	
 	private String _callback;
 	private Date _init;
 	private int _fmt;
-	private String _opaque;
+	private byte[] _opaque;
 	
 	private DatePicker _datePicker;
 	private TimePicker _timePicker;
@@ -54,28 +39,30 @@ public class DateTimePickerScreen extends Activity {
 			_init.setDate(_datePicker.getDayOfMonth());
 			_init.setHours(_timePicker.getCurrentHour());
 			_init.setMinutes(_timePicker.getCurrentMinute());
-			sendResult(_callback, _init);
+			sendResult(_callback, _init, _opaque);
 		}
 	};
 	
 	private OnClickListener mCancelListener = new OnClickListener() {
 		public void onClick(View v) {
-			sendResult(_callback, null);
+			sendResult(_callback, null, _opaque);
 		}
 	};
 	
 	@Override
 	public void onCreate(Bundle icicle) {
 		super.onCreate(icicle);
-		Log.d(getClass().getSimpleName(), "onCreate");
+		Logger.D(TAG, "onCreate");
+		
+		getWindow().setFlags(Rhodes.WINDOW_FLAGS, Rhodes.WINDOW_MASK);
 		setContentView(AndroidR.layout.datetime);
 		
 		Bundle extras = this.getIntent().getExtras();
 		
 		_callback = extras.getString("callback");
-		_init = new Date(extras.getLong("init"));
+		_init = new Date(extras.getLong("init")*1000);
 		_fmt = extras.getInt("fmt");
-		_opaque = extras.getString("opaque");
+		_opaque = extras.getByteArray("opaque");
 		
 		this.setTitle(extras.getString("title"));
 		
@@ -98,6 +85,8 @@ public class DateTimePickerScreen extends Activity {
 		case FORMAT_TIME:
 			_datePicker.setVisibility(View.INVISIBLE);
 			break;
+		case FORMAT_DATE_TIME:
+			break;
 		}
 	}
 	
@@ -108,80 +97,11 @@ public class DateTimePickerScreen extends Activity {
 		_cancelButton.setEnabled(v);
 	}
 	
-	private class ResultSender implements Runnable {
-		
-		private String _callback;
-		private Date _result;
-		
-		public ResultSender(String callback, Date result) {
-			_callback = callback;
-			_result = result;
-		}
-		
-		public void run() {
-			IHttpConnection connection = null;
-			
-			String fullUrl = RhodesInstance.getInstance().
-				getCurrentUrl().replaceAll("\\\\", "/");
-
-			String[] paths = _callback.replaceAll("\\\\", "/").split("/");
-
-			for (int i = paths.length - 1; i >= 0; i--) {
-				System.out.println(fullUrl);
-
-				if (!paths[i].equals("")) {
-					int pos = fullUrl.lastIndexOf("/" + paths[i]);
-
-					if (pos != -1) {
-						fullUrl = fullUrl.substring(0, pos);
-					}
-				}
-			}
-
-			if (fullUrl.endsWith("/"))
-				fullUrl = fullUrl.substring(0, fullUrl.length() - 2);
-
-			if (_callback.startsWith("/"))
-				fullUrl += _callback;
-			else
-				fullUrl += "/" + _callback;
-
-			System.out.println(fullUrl);
-
-			HttpHeader headers = new HttpHeader();
-			headers.setHeader("Content-Type", "application/x-www-form-urlencoded");
-			
-			String body;
-			if (_result == null)
-				body = "status=cancel";
-			else {
-				body = "status=ok&result=" + _result.getTime()/1000;
-				if (_opaque != null)
-					body += "&opaque=" + _opaque;
-			}
-			
-			try {
-				connection = AndroidHttpConnection.makeConnection(fullUrl, headers, body.getBytes());
-				int code = connection.getResponseCode();
-				if (code != IHttpConnection.HTTP_OK) {
-					System.out.println("Error posting data: " + code);
-				}
-			} catch (Exception e) {
-				System.out.println("Error posting data: " + e.getMessage());
-			} finally {
-				if (connection != null)
-					try {
-						connection.close();
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-				finish();
-			}
-		}
-	};
-	
-	private void sendResult(String callback, Date result) {
+	private void sendResult(String callback, Date result, byte[] opaque) {
 		this.setFieldsEnabled(false);
-		new Thread(new ResultSender(callback, result)).start();
+		long res = result == null ? 0 : result.getTime()/1000;
+		Logger.D(TAG, "Return result: " + res);
+		DateTimePicker.callback(callback, res, opaque, result == null);
+		finish();
 	}
 }

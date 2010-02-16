@@ -10,14 +10,13 @@
 #include "missing/file.h"
 #endif
 
+#include "common/RhodesApp.h"
 #include "logging/RhoLog.h"
 #undef DEFAULT_LOGCATEGORY
 #define DEFAULT_LOGCATEGORY "RhoRuby"
 
 extern /*RHO static*/ VALUE
 eval_string_with_cref(VALUE self, VALUE src, VALUE scope, NODE *cref, const char *file, int line);
-extern const char* RhoGetRootPath();
-extern const char* RhoGetRelativeBlobsPath();
 static VALUE loadISeqFromFile(VALUE path);
 VALUE require_compiled(VALUE fname, VALUE* result);
 VALUE RhoPreparePath(VALUE path);
@@ -25,7 +24,7 @@ VALUE rb_iseq_eval(VALUE iseqval);
 
 VALUE __rhoGetCurrentDir(void)
 {
-    return rb_str_new2(RhoGetRootPath());
+    return rb_str_new2(rho_native_rhopath());
 }
 
 VALUE
@@ -93,6 +92,17 @@ static VALUE loadISeqFromFile(VALUE path)
 #endif    
 
         return seq;
+}
+
+VALUE
+__rhoGetCallbackObject(VALUE obj, VALUE valIndex)
+{
+    VALUE result = rho_rhodesapp_GetCallbackObject( NUM2INT(valIndex) );
+    if (result == 0) {
+        rb_raise(rb_eArgError, "__rhoGetCallbackObject invalid index -- %d", NUM2INT(valIndex) );
+    }
+
+    return result;
 }
 
 VALUE
@@ -178,23 +188,29 @@ static VALUE find_file(VALUE fname)
     VALUE res;
     int nOK = 0;
 
-    if ( strncmp(RSTRING_PTR(fname), RhoGetRootPath(), strlen(RhoGetRootPath())) == 0 ){
+    //RAWLOG_INFO1("find_file: fname: %s", RSTRING_PTR(fname));
+
+    if ( strncmp(RSTRING_PTR(fname), rho_native_rhopath(), strlen(rho_native_rhopath())) == 0 ){
         res = rb_str_dup(fname);
         rb_str_cat(res,".iseq",5);
+        //RAWLOG_INFO1("find_file: res: %s", RSTRING_PTR(res));
     }else{
         int i = 0;
         VALUE load_path = GET_VM()->load_path;
         //VALUE dir;
-        fname = checkRhoBundleInPath(fname);
+        VALUE fname1 = checkRhoBundleInPath(fname);
+        //RAWLOG_INFO1("find_file: fname after checkRhoBundleInPath: %s", RSTRING_PTR(fname));
 
         //TODO: support document relative require in case of multiple apps
         if (RARRAY_LEN(load_path)>1){
             for( ; i < RARRAY_LEN(load_path); i++ ){
                 VALUE dir = RARRAY_PTR(load_path)[i];
+                //RAWLOG_INFO1("find_file: check dir %s", RSTRING_PTR(dir));
                 res = rb_str_dup(dir);
                 rb_str_cat(res,"/",1);
-                rb_str_cat(res,RSTRING_PTR(fname),RSTRING_LEN(fname));
+                rb_str_cat(res,RSTRING_PTR(fname1),RSTRING_LEN(fname1));
                 rb_str_cat(res,".iseq",5);
+                //RAWLOG_INFO1("find_file: check file: %s", RSTRING_PTR(res));
 
                 if( eaccess(RSTRING_PTR(res), R_OK) == 0 ){
                     nOK = 1;
@@ -220,6 +236,7 @@ static VALUE find_file(VALUE fname)
         } */
     }
 
+    //RAWLOG_INFO1("find_file: RhoPreparePath: %s", RSTRING_PTR(res));
     res = RhoPreparePath(res);
     if ( !nOK )
         nOK = 1;//eaccess(RSTRING_PTR(res), R_OK) == 0 ? 1 : 0;
@@ -251,29 +268,40 @@ VALUE isAlreadyLoaded(VALUE path)
 VALUE require_compiled(VALUE fname, VALUE* result)
 {
     VALUE path;
-    char* szName = 0;
-//    FilePathValue(fname);
-
-	szName = RSTRING_PTR(fname);
-    RAWTRACE1("require_compiled: %s", szName);
+    char* szName1 = 0;
 
     rb_funcall(fname, rb_intern("sub!"), 2, rb_str_new2(".rb"), rb_str_new2("") );
 
-    if ( strcmp("strscan",szName)==0 || strcmp("enumerator",szName)==0 )
+    szName1 = RSTRING_PTR(fname);
+    if ( strcmp("strscan",szName1)==0 || strcmp("enumerator",szName1)==0 ||
+        strcmp("stringio",szName1)==0 || strcmp("socket",szName1)==0 ||
+        strcmp("digest.so",szName1)==0 || strcmp("openssl.so",szName1)==0 ||
+        strcmp("fcntl",szName1)==0 || strcmp("digest/md5",szName1)==0 ||
+        strcmp("digest/sha1",szName1)==0 )
         return Qtrue;
 
+    if ( isAlreadyLoaded(fname) == Qtrue )
+        return Qtrue;
+
+    //RAWLOG_INFO1("find_file: %s", RSTRING_PTR(fname));
     path = find_file(fname);
 
     if ( path != 0 )
     {
         VALUE seq;
-		
-        if ( isAlreadyLoaded(path) == Qtrue )
-            return Qtrue;
 
-        rb_ary_push(GET_VM()->loaded_features, path);
+//        if ( isAlreadyLoaded(path) == Qtrue )
+//            return Qtrue;
 
+        RAWLOG_INFO1("require_compiled: %s", szName1);
+
+        //optimize require
+        //rb_ary_push(GET_VM()->loaded_features, path);
+        rb_ary_push(GET_VM()->loaded_features, fname);
+
+        rb_gc_disable();
         seq = loadISeqFromFile(path);
+        rb_gc_enable();
 
         //*result = rb_funcall(seq, rb_intern("eval"), 0 );
         *result = rb_iseq_eval(seq);
@@ -281,6 +309,7 @@ VALUE require_compiled(VALUE fname, VALUE* result)
         return Qtrue;
     }
 
+    RAWLOG_ERROR1("require_compiled: error: can not find %s", RSTRING_PTR(fname));
     return Qnil;
 }
 
@@ -327,6 +356,7 @@ void Init_RhoSupport()
 	rb_define_global_function("eval_compiled_file", rb_f_eval_compiled, -1);
 	rb_define_global_function("__rhoGetCurrentDir", __rhoGetCurrentDir, 0);
 	rb_define_global_function("load", rb_require_compiled, 1);
+	rb_define_global_function("__rhoGetCallbackObject", __rhoGetCallbackObject, 1);
 
     rb_define_method(rb_mKernel, "rhom_init", rb_obj_rhom_init, 1);	
 
@@ -336,32 +366,73 @@ void Init_RhoSupport()
 
 static void Init_RhoBlobs()
 {
-  VALUE path = __rhoGetCurrentDir();
-  rb_funcall(path, rb_intern("concat"), 1, rb_str_new2(RhoGetRelativeBlobsPath()));
+  VALUE path = rb_str_new2(rho_rhodesapp_getblobsdirpath());
 
   RAWLOG_INFO1("Init_RhoBlobs: %s", RSTRING_PTR(path) );
 
   if ( rb_funcall(rb_cDir, rb_intern("exist?"), 1, path)==Qfalse )
     rb_funcall(rb_cDir, rb_intern("mkdir"), 1, path);
 
+  RAWLOG_INFO("Init_RhoBlobs: done");
 }
 
-static VALUE
-rb_RhoLogWrite(VALUE rhoLog, VALUE str)
-{
-#if RHO_STRIP_LOG <= L_INFO
+void rhoRubyLogWithSeverity(int severity, VALUE category, VALUE str) {
     char* szStr = 0;
+    char* catStr = StringValuePtr(category);
+
+    if(catStr == NULL) {
+        catStr = "APP";
+    }
+
     str = rb_obj_as_string(str);
 
     szStr = RSTRING_PTR(str);
     //Skip just newline string
     if ( strcmp(szStr,"\r\n") != 0 && strcmp(szStr,"\n") != 0 )
-        rhoPlainLog("",0,L_INFO,"APP",RSTRING_PTR(str));
+        rhoPlainLog("",0,severity,catStr,RSTRING_PTR(str));
+
+}
+
+static VALUE
+rb_RhoLogInfo(VALUE rhoLog, VALUE category, VALUE str)
+{
+#if RHO_STRIP_LOG <= L_INFO
+    rhoRubyLogWithSeverity(L_INFO, category, str);
 #else
 #endif
 
     return Qnil;
 }
+
+static VALUE
+rb_RhoLogError(VALUE rhoLog, VALUE category, VALUE str)
+{
+#if RHO_STRIP_LOG <= L_ERROR
+   rhoRubyLogWithSeverity(L_ERROR, category, str);
+#else
+#endif
+
+    return Qnil;
+}
+
+static VALUE
+rb_RhoLogWrite(VALUE rhoLog, VALUE str)
+{
+    return rb_RhoLogInfo(rhoLog,rb_str_new2("APP"),str);
+}
+
+static VALUE
+rb_RhoLogFlush(void)
+{
+    return Qnil;
+}
+
+static VALUE
+rb_RhoLogFileno(void)
+{
+    return ULONG2NUM(1);
+}
+
 
 void rhoRubyFatalError(const char* szError){
     rhoPlainLog("",0,L_FATAL,"RubyVM",szError);
@@ -410,6 +481,16 @@ int rhoRubyFPrintf(FILE *file, const char *format, ...){
     return nRes;
 }
 
+int rhoRubyPrintf(const char *format, ...){
+    int nRes = 1;
+    va_list ap;
+    va_start(ap, format);
+    nRes = rhoRubyVFPrintf(stdout,format,ap);
+    va_end(ap);
+
+    return nRes;
+}
+
 static VALUE rb_RhoLogClass;
 static void Init_RhoLog(){
 
@@ -417,6 +498,12 @@ static void Init_RhoLog(){
 
     rb_RhoLogClass = rb_define_class("RhoLog", rb_cObject);
     rb_define_method(rb_RhoLogClass, "write", rb_RhoLogWrite, 1);
+    rb_define_method(rb_RhoLogClass, "print", rb_RhoLogWrite, 1);
+    rb_define_method(rb_RhoLogClass, "info", rb_RhoLogInfo, 2);
+    rb_define_method(rb_RhoLogClass, "error", rb_RhoLogError, 2);
+    rb_define_method(rb_RhoLogClass, "flush", rb_RhoLogFlush, 0);
+    rb_define_method(rb_RhoLogClass, "fileno", rb_RhoLogFileno, 0);
+    rb_define_method(rb_RhoLogClass, "to_i", rb_RhoLogFileno, 0);
 
     appLog = rb_funcall(rb_RhoLogClass, rb_intern("new"), 0);
     

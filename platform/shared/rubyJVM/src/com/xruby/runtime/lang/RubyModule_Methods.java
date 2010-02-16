@@ -13,7 +13,16 @@ klass.defineMethod( "const_defined?", new RubyOneArgMethod(){
 	protected RubyValue run(RubyValue receiver, RubyValue arg, RubyBlock block ){
 		return ((RubyModule)receiver).isConstDefined(arg);}
 });
+klass.defineMethod( "method_defined?", new RubyOneArgMethod(){ 
+	protected RubyValue run(RubyValue receiver, RubyValue arg, RubyBlock block ){
+		return ((RubyModule)receiver).isMethodDefined(arg);}
+});
 
+klass.defineMethod( "public_method_defined?", new RubyOneArgMethod(){ 
+	protected RubyValue run(RubyValue receiver, RubyValue arg, RubyBlock block ){
+		return ((RubyModule)receiver).isPublicMethodDefined(arg);}
+});
+		
 klass.defineMethod( "===", new RubyOneArgMethod(){ 
 	protected RubyValue run(RubyValue receiver, RubyValue arg, RubyBlock block ){
 		return ((RubyModule)receiver).caseEqual(arg);}
@@ -152,6 +161,11 @@ klass.defineMethod( "private_instance_methods", new RubyVarArgMethod(){
 	protected RubyValue run(RubyValue receiver, RubyArray args, RubyBlock block ){
 		return ((RubyModule)receiver).private_instance_methods(args);}
 });
+klass.defineMethod( "instance_method", new RubyOneArgMethod(){ 
+	protected RubyValue run(RubyValue receiver, RubyValue arg, RubyBlock block ){
+		return ((RubyModule)receiver).instance_method(arg);}
+});
+
 klass.definePrivateMethod( "public", new RubyVarArgMethod(){ 
 	protected RubyValue run(RubyValue receiver, RubyArray args, RubyBlock block ){
 		return ((RubyModule)receiver).modPublic(args);}

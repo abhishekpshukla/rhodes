@@ -23,12 +23,15 @@ static const int ERR_CLIENTISNOTLOGGEDIN = 7;
 static const int ERR_CUSTOMSYNCSERVER = 8;
 static const int ERR_UNATHORIZED = 9;
 static const int ERR_CANCELBYUSER = 10;
+
+static String getMessageText(const char* szName);
+static String getErrorText(int nError);
 };
 extern const _CRhoRuby& RhoRuby;
 
 namespace sync {
 
-class CSyncEngine
+class CSyncEngine : public net::IRhoSession
 {
     DEFINE_LOGCLASS;
 public:
@@ -39,6 +42,16 @@ public:
 
     static String SYNC_ASK_ACTION() { return "/ask"; }
 //    static int MAX_SYNC_TRY_COUNT() { return 2; }
+
+    struct CSourceID
+    {
+        String m_strName;
+        String m_strUrl;
+        int m_nID;
+
+        String toString()const;
+        boolean isEqual(CSyncSource& src)const;
+    };
 
 private:
     VectorPtr<CSyncSource*> m_sources;
@@ -51,6 +64,7 @@ private:
     CSyncNotify m_oSyncNotify;
     boolean m_bStopByUser;
     int m_nSyncPageSize;
+    boolean m_bNoThreaded;
 
 public:
     CSyncEngine(db::CDBAdapter& db);
@@ -61,7 +75,7 @@ public:
     }
 
     void doSyncAllSources();
-    void doSyncSource(int nSrcId, String strSrcUrl, String strParams, String strAction, boolean bSearchSyncChanges, int nProgressStep);
+    void doSyncSource(const CSourceID& oSrcID, String strParams, String strAction, boolean bSearchSyncChanges, int nProgressStep);
     void login(String name, String password, String callback);
     boolean isLoggedIn();
     String loadSession();
@@ -79,7 +93,7 @@ public:
 //private:
     String getClientID()const{ return m_clientID; }
     void setSession(String strSession){m_strSession=strSession;}
-    String getSession(){ return m_strSession; }
+    const String& getSession(){ return m_strSession; }
     boolean isSessionExist(){ return m_strSession.length() > 0; }
 
     //CSyncEngine(): m_dbAdapter(db::CDBAdapter()), m_NetRequest(0), m_isLoggedIn(true){}
@@ -91,6 +105,7 @@ public:
     String loadClientID();
     String requestClientIDByNet();
     boolean resetClientIDByNet(const String& strClientID);//throws Exception
+    void doInitialSync(String strClientID);//throws Exception
 
     db::CDBAdapter& getDB(){ return m_dbAdapter; }
     CSyncNotify& getNotify(){ return m_oSyncNotify; }
@@ -101,12 +116,13 @@ public:
     String SYNC_PAGE_SIZE();
     int getSyncPageSize() { return m_nSyncPageSize; }
     void setSyncPageSize(int nPageSize){ m_nSyncPageSize = nPageSize; }
+
+    boolean isNoThreadedMode(){ return m_bNoThreaded; }
+    void setNonThreadedMode(bool b){m_bNoThreaded = b;}
 private:
  
-    CSyncSource* findSourceByID(int nSrcId);
-    CSyncSource* findSourceByUrl(const String& strSrcUrl);
+    CSyncSource* findSource(const CSourceID& oSrcID);
 
-    void callLoginCallback(String callback, int nErrCode, String strMessage);
     boolean checkAllSourcesFromOneDomain();
     friend class CSyncSource;
 };

@@ -93,18 +93,26 @@ module Rho
     # ==> /application/model/{12}/show#an-anchor
     #
     def url_for(params = {})
-      return params.to_s if params.is_a? String or params.is_a? Symbol
-      return '/' if not params.is_a? Hash or params.nil?
+      return params.to_s if params.is_a?( String ) or params.is_a?( Symbol )
+      return '/' if not params.is_a?( Hash ) or params.nil?
+
+      params = params.symbolize_keys if params.is_a? Hash
 
       application = params[:application] || @request['application']
       model = params[:controller] || params[:model] || @request['model'] 
       action = params[:action].nil? ? nil : params[:action].to_s
       id = params[:id].nil? ? nil : params[:id].to_s
-      query = query_to_s(params[:query])
+      if params[:query_s]
+        query = params[:query_s]
+      else
+        query = query_to_s(params[:query])
+      end
+        
       fragment = params[:fragment].nil? ? '' : '#' + params[:fragment]
    
       amurl = ''
-      amurl << '/' << application.to_s << '/' << model.to_s
+      amurl << '/' << application.to_s << '/' if application
+      amurl << model.to_s
 
       if action.nil? or action == 'create' or action == 'index'  
         amurl << query << fragment 

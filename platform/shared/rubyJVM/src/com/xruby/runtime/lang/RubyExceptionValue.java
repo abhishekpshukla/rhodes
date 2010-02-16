@@ -85,7 +85,16 @@ public class RubyExceptionValue extends RubyBasic {
     
     //@RubyLevelMethod(name="to_s", alias={"message", "to_str"})
     public RubyString to_s() {
-    	return ObjectFactory.createString(this.message_);
+    	
+    	String res = this.message_;
+
+		if ( res == null || res.length() == 0 )
+			res = this.getRubyClass().getName();
+    	
+		if ( res == null || res.length() == 0 )
+			res = this.getClass().getName();
+    	
+    	return ObjectFactory.createString(res);
     }
     
     public String toString() {
@@ -97,6 +106,11 @@ public class RubyExceptionValue extends RubyBasic {
         return backTrace;
     }
 
+    public void addBacktrace(String strTrace)
+    {
+    	backTrace.add(ObjectFactory.createString(strTrace));
+    }
+    
     public Throwable getThrowable(){
         return throwable_;
     }

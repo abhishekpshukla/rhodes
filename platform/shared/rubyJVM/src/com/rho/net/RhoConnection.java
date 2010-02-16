@@ -53,8 +53,11 @@ public class RhoConnection implements IHttpConnection {
     public RhoConnection(URI _uri) {
     	uri = new URI(_uri.toString());
     	uri_external = _uri;
-    	
-    	uri.setPath("/apps" + uri.getPath());
+    
+    	if ( !uri.getPath().startsWith("/apps") )
+    		uri.setPath("/apps" + uri.getPath());
+    	else
+    		uri.setPath(uri.getPath());
     }
     
 	public Object getNativeConnection() {
@@ -392,7 +395,13 @@ public class RhoConnection implements IHttpConnection {
 		if ( strError != null && strError.length() != 0 )
 			responseMsg += ".Error: " + strError;
 		
-		contentLength = 0;
+		String strBody = "Page not found: " + uri.getPath(); 
+		
+		contentLength = strBody.length();
+		responseData = new ByteArrayInputStream(strBody.getBytes());
+		
+		resHeaders.addProperty("Content-Type", "text/html" );
+		resHeaders.addProperty("Content-Length", Integer.toString( contentLength ) );
 	}
 	
 	String getContentType(){
@@ -513,8 +522,8 @@ public class RhoConnection implements IHttpConnection {
 			try{
 				file = RhoClassFactory.createFile();
 				String strFileName = strPath;
-				if ( strFileName.startsWith("/apps") )
-					strFileName = strPath.substring(5);
+//				if ( strFileName.startsWith("/apps") )
+//					strFileName = strPath.substring(5);
 				
 				file.open(strFileName, true, true);
 				responseData = file.getInputStream();
@@ -636,15 +645,38 @@ public class RhoConnection implements IHttpConnection {
 		if ( checkRhoExtensions(application, model ) )
 			return true;
 		
-		String strCtrl = "apps/" + application + '/' + model + '/' + "controller";
-		if( RhoSupport.findClass(strCtrl) == null )
-			return false;
+		// Convert CamelCase to underscore_case
+		StringBuffer cName = new StringBuffer();
+		byte[] modelname = model.getBytes();
+		char ch;
+		for (int i = 0; i != model.length(); ++i) {
+			if (modelname[i] >= (byte)'A' && modelname[i] <= (byte)'Z') {
+				ch = (char)(modelname[i] + 0x20);
+				if (i != 0)
+					cName.append('_');
+				
+			}
+			else ch = (char)modelname[i];
+			cName.append(ch);
+		}
+		String controllerName = cName.toString();
+		
+		String strCtrl = "apps/" + application + '/' + model + '/' + controllerName + "_controller";
+		if (RhoSupport.findClass(strCtrl) == null) {
+			strCtrl = "apps/" + application + '/' + model + '/' + "controller";
+			if( RhoSupport.findClass(strCtrl) == null )
+				return false;
+		}
 		
 		Properties reqHash = new Properties();
 		
 		String actionid = up.next();
 		String actionnext = up.next();
 		if ( actionid != null && actionid.length() > 0 ){
+			if ( actionid.length() > 6 && actionid.startsWith("%7B") && 
+			     actionid.endsWith("%7D") )
+				actionid = "{" + actionid.substring(3, actionid.length()-3) + "}";
+			
 			if ( actionid.length() > 2 && 
 				 actionid.charAt(0)=='{' && actionid.charAt(actionid.length()-1)=='}' ){
 				reqHash.setProperty( "id", actionid);
@@ -672,7 +704,7 @@ public class RhoConnection implements IHttpConnection {
 		if ( actionid !=null && actionid.length() > 2 && 
 			 actionid.charAt(0)=='{' && actionid.charAt(actionid.length()-1)=='}' )
 			SyncThread.getInstance().addobjectnotify_bysrcname( model, actionid);
-		
+
 		LOG.INFO("dispatch end");
 		return true;
 	}
@@ -730,9 +762,17 @@ public class RhoConnection implements IHttpConnection {
 				
 			LOG.TRACE(strBody);
 			
-			responseData = new ByteArrayInputStream(strBody.getBytes()); 
+			try{
+				responseData = new ByteArrayInputStream(strBody.getBytes("UTF-8"));
+       		}catch(java.io.UnsupportedEncodingException exc)
+       		{
+       			LOG.ERROR("Error getting utf-8 body :", exc);
+       		}
+				
 			if ( responseData != null )
 				contentLength = Integer.parseInt(resHeaders.getPropertyIgnoreCase("Content-Length"));
+			
+			GeoLocation.wakeUp();
 		}
 	}
 	

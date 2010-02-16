@@ -30,20 +30,8 @@ import com.rho.RhoThread;
 import com.rho.TimeInterval;
 import com.rho.db.DBAdapter;
 import com.rho.db.IDBResult;
-import com.xruby.runtime.builtin.ObjectFactory;
-import com.xruby.runtime.builtin.RubyArray;
-import com.xruby.runtime.lang.RubyBlock;
-import com.xruby.runtime.lang.RubyClass;
-import com.xruby.runtime.lang.RubyConstant;
-import com.xruby.runtime.lang.RubyException;
-import com.xruby.runtime.lang.RubyNoArgMethod;
-import com.xruby.runtime.lang.RubyNoOrOneArgMethod;
-import com.xruby.runtime.lang.RubyOneArgMethod;
-import com.xruby.runtime.lang.RubyOneOrTwoArgMethod;
-import com.xruby.runtime.lang.RubyTwoArgMethod;
-import com.xruby.runtime.lang.RubyRuntime;
-import com.xruby.runtime.lang.RubyValue;
-import com.xruby.runtime.lang.RubyVarArgMethod;
+import com.xruby.runtime.builtin.*;
+import com.xruby.runtime.lang.*;
 
 public class SyncThread extends RhoThread
 {
@@ -55,7 +43,7 @@ public class SyncThread extends RhoThread
 	
 	static SyncThread m_pInstance;
 
-   	public final static int scNone = 0, scSyncAll = 2, scSyncOne = 3, scChangePollInterval=4, scExit=5, scLogin = 6, scSearchOne=7; 
+   	public final static int scNone = 0, scSyncAll = 2, scSyncOne = 3, scSyncOneByUrl = 4, scChangePollInterval=5, scExit=6, scLogin = 7, scSearchOne=8; 
     
    	static private class SyncCommand
    	{
@@ -140,6 +128,8 @@ public class SyncThread extends RhoThread
 	    stop(SYNC_WAIT_BEFOREKILL_SECONDS);
 	    LOG.INFO( "Sync engine thread shutdown" );
 		
+	    getDBAdapter().close();
+	    
 	    m_pInstance = null;
 	}
 
@@ -163,7 +153,7 @@ public class SyncThread extends RhoThread
 	}
 
     public static SyncThread getInstance(){ return m_pInstance; }
-    public static SyncEngine getSyncEngine(){ return m_pInstance.m_oSyncEngine; }
+    public static SyncEngine getSyncEngine(){ return m_pInstance!= null ? m_pInstance.m_oSyncEngine : null; }
     static DBAdapter getDBAdapter(){ return DBAdapter.getInstance(); }
 
     void addSyncCommand(SyncCommand oSyncCmd)
@@ -191,7 +181,7 @@ public class SyncThread extends RhoThread
     int getLastSyncInterval()
     {
     	try{
-	    	TimeInterval nowTime = TimeInterval.getCurrentTime();
+	    	long nowTime = (TimeInterval.getCurrentTime().toULong())/1000;
 	    	
 		    IDBResult res = m_oSyncEngine.getDB().executeSQL("SELECT last_updated from sources");
 		    long latestTimeUpdated = 0;
@@ -202,7 +192,7 @@ public class SyncThread extends RhoThread
 		        	latestTimeUpdated = timeUpdated;
 		    }
 	    	
-	    	return latestTimeUpdated > 0 ? (int)(nowTime.toULong()-latestTimeUpdated) : 0;
+	    	return latestTimeUpdated > 0 ? (int)(nowTime-latestTimeUpdated) : 0;
     	}catch(Exception exc)
     	{
     		LOG.ERROR("isStartSyncNow failed.", exc);
@@ -220,7 +210,7 @@ public class SyncThread extends RhoThread
 	        int nWait = m_nPollInterval > 0 ? m_nPollInterval : SYNC_POLL_INTERVAL_INFINITE;
 
 	        if ( m_nPollInterval > 0 && nLastSyncInterval > 0 )
-	            nWait = (m_nPollInterval*1000 - nLastSyncInterval)/1000;
+	            nWait = m_nPollInterval - nLastSyncInterval;
 
 	        synchronized(m_mxStackCommands)
 	        {
@@ -286,13 +276,33 @@ public class SyncThread extends RhoThread
 	        break;
 	    case scChangePollInterval:
 	        break;
-	    case scSyncOne:
-	    	m_oSyncEngine.doSyncSource(oSyncCmd.m_nCmdParam,oSyncCmd.m_strCmdParam,"","", false, -1 );
+	    case scSyncOneByUrl:
+	        {
+	            SyncEngine.SourceID oSrcID = new SyncEngine.SourceID();
+	            oSrcID.m_strUrl = oSyncCmd.m_strCmdParam;
+	
+	            m_oSyncEngine.doSyncSource(oSrcID,"","",false, -1 );
+	        }
 	        break;
+        case scSyncOne:
+	        {
+	            SyncEngine.SourceID oSrcID = new SyncEngine.SourceID();
+	            oSrcID.m_nID = oSyncCmd.m_nCmdParam;
+	            oSrcID.m_strName = oSyncCmd.m_strCmdParam;
+	
+	            m_oSyncEngine.doSyncSource(oSrcID,"","",false, -1 );
+	        }
+	        break;
+	        
 	    case scSearchOne:
-	        m_oSyncEngine.doSyncSource(oSyncCmd.m_nCmdParam,"",oSyncCmd.m_strCmdParam, 
-	            ((SyncSearchCommand)oSyncCmd).m_strFrom, ((SyncSearchCommand)oSyncCmd).m_bSyncChanges,
-	            ((SyncSearchCommand)oSyncCmd).m_nProgressStep);
+		    {
+	            SyncEngine.SourceID oSrcID = new SyncEngine.SourceID();
+	            oSrcID.m_nID = oSyncCmd.m_nCmdParam;
+		    	
+		        m_oSyncEngine.doSyncSource(oSrcID, oSyncCmd.m_strCmdParam, 
+		            ((SyncSearchCommand)oSyncCmd).m_strFrom, ((SyncSearchCommand)oSyncCmd).m_bSyncChanges,
+		            ((SyncSearchCommand)oSyncCmd).m_nProgressStep);
+		    }
 	        break;
 	        
 	    case scLogin:
@@ -328,29 +338,29 @@ public class SyncThread extends RhoThread
 	{
 		if (bShowStatus&&(m_statusListener != null)) {
 			getInstance().m_oSyncEngine.getNotify().setSyncStatusListener(m_statusListener);
-			m_statusListener.createStatusPopup();
+			m_statusListener.createStatusPopup(RhoRuby.getMessageText("syncronizing_data"));
 		}else
 			getInstance().m_oSyncEngine.getNotify().setSyncStatusListener(null);
 		
 		getInstance().addSyncCommand(new SyncCommand(SyncThread.scSyncAll));
 	}
 
-	public static void doSyncSource(int nSrcID, boolean bShowStatus)
+	public static void doSyncSource(int nSrcID, String strName, boolean bShowStatus)
 	{
 		if (bShowStatus&&(m_statusListener != null)) {
-			m_statusListener.createStatusPopup();
+			m_statusListener.createStatusPopup(RhoRuby.getMessageText("syncronizing_data"));
 		}
 		
-		getInstance().addSyncCommand(new SyncCommand(SyncThread.scSyncOne, nSrcID) );
+		getInstance().addSyncCommand(new SyncCommand(SyncThread.scSyncOne, strName, nSrcID) );
 	}
-
-	public static void doSyncSource(String strSrcUrl, boolean bShowStatus)
+	
+	public static void doSyncSourceByUrl(String strSrcUrl, boolean bShowStatus)
 	{
 		if (bShowStatus&&(m_statusListener != null)) {
-			m_statusListener.createStatusPopup();
+			m_statusListener.createStatusPopup(RhoRuby.getMessageText("syncronizing_data"));
 		}
 		
-		getInstance().addSyncCommand(new SyncCommand(SyncThread.scSyncOne, strSrcUrl) );
+		getInstance().addSyncCommand(new SyncCommand(SyncThread.scSyncOneByUrl, strSrcUrl) );
 	}
 	
 	public static void stopSync()throws Exception
@@ -363,7 +373,8 @@ public class SyncThread extends RhoThread
 			while( nWait < 30000 && getSyncEngine().getDB().isInsideTransaction() )
 				try{ Thread.sleep(100); nWait += 100; }catch(Exception e){}
 				
-			if (getSyncEngine().getState() != SyncEngine.esNone)
+			//if (getSyncEngine().getState() != SyncEngine.esNone)
+			if ( getSyncEngine().getDB().isInsideTransaction() )	
 			{
 				getSyncEngine().exitSync();
 				getInstance().stop(0);
@@ -409,7 +420,14 @@ public class SyncThread extends RhoThread
 			protected RubyValue run(RubyValue receiver, RubyValue arg, RubyBlock block )
 			{
 				try {
-					doSyncSource(arg.toInt(), true);
+					int nSrcID = 0;
+					String strName = "";
+					if ( arg instanceof RubyFixnum )
+						nSrcID = arg.toInt();
+					else
+						strName = arg.toStr();
+					
+					doSyncSource( nSrcID, strName, true);
 				} catch(Exception e) {
 					LOG.ERROR("dosync_source failed", e);
 					throw (e instanceof RubyException ? (RubyException)e : new RubyException(e.getMessage()));
@@ -421,7 +439,15 @@ public class SyncThread extends RhoThread
 				try {
 					String str = arg1.asString();
 					boolean show = arg1.equals(RubyConstant.QTRUE)||"true".equalsIgnoreCase(str);
-					doSyncSource(arg0.toInt(), show);
+					
+					int nSrcID = 0;
+					String strName = "";
+					if ( arg0 instanceof RubyFixnum )
+						nSrcID = arg0.toInt();
+					else
+						strName = arg0.toStr();
+					
+					doSyncSource(nSrcID, strName, show);
 				} catch(Exception e) {
 					LOG.ERROR("dosync_source failed", e);
 					throw (e instanceof RubyException ? (RubyException)e : new RubyException(e.getMessage()));
@@ -433,9 +459,9 @@ public class SyncThread extends RhoThread
 		klass.getSingletonClass().defineMethod("dosearch_source",
 			new RubyVarArgMethod() {
 				protected RubyValue run(RubyValue receiver, RubyArray args, RubyBlock block) {
-					if ( args.size() != 5 )
+					if ( args.size() != 7 )
 						throw new RubyException(RubyRuntime.ArgumentErrorClass, 
-								"in SyncEngine.dosearch_source: wrong number of arguments ( " + args.size() + " for " + 5 + " )");			
+								"in SyncEngine.dosearch_source: wrong number of arguments ( " + args.size() + " for " + 7 + " )");			
 					
 					try{
 						int source_id = args.get(0).toInt();
@@ -444,8 +470,14 @@ public class SyncThread extends RhoThread
 						
 						String str = args.get(3).asString();
 						int nProgressStep = args.get(4).toInt();
+						String callback = args.get(5) != RubyConstant.QNIL ? args.get(5).toStr() : "";
+						String callback_params = args.get(6) != RubyConstant.QNIL ? args.get(6).toStr() : "";
+						
 						boolean bSearchSyncChanges = args.get(3).equals(RubyConstant.QTRUE)||"true".equalsIgnoreCase(str);
 						stopSync();
+
+						if ( callback != null && callback.length() > 0 )
+							getSyncEngine().getNotify().setSearchNotification(source_id, callback, callback_params);
 						
 						getInstance().addSyncCommand(new SyncSearchCommand(from,params,source_id,bSearchSyncChanges, nProgressStep) );
 					}catch(Exception e)
@@ -607,6 +639,39 @@ public class SyncThread extends RhoThread
 					return RubyConstant.QNIL;
 				}
 			});
+		
+		klass.getSingletonClass().defineMethod("set_initial_notification",
+				new RubyTwoArgMethod() {
+					protected RubyValue run(RubyValue receiver, RubyValue arg1, RubyValue arg2, RubyBlock block) {
+						
+						try{
+							String url = arg1.toStr();
+							String params = arg2.toStr();
+							getSyncEngine().getNotify().setInitialSyncNotification(url, params);
+						}catch(Exception e)
+						{
+							LOG.ERROR("set_initial_notification failed", e);
+							throw (e instanceof RubyException ? (RubyException)e : new RubyException(e.getMessage()));
+						}
+						return RubyConstant.QNIL;
+					}
+				});
+		klass.getSingletonClass().defineMethod("clear_initial_notification",
+				new RubyNoArgMethod() {
+					protected RubyValue run(RubyValue receiver, RubyBlock block) {
+						try{
+							getSyncEngine().getNotify().clearInitialSyncNotification();
+						}catch(Exception e)
+						{
+							LOG.ERROR("clear_initial_notification failed", e);
+							throw (e instanceof RubyException ? (RubyException)e : new RubyException(e.getMessage()));
+						}
+						
+						
+						return RubyConstant.QNIL;
+					}
+				});
+		
 		klass.getSingletonClass().defineMethod("set_pollinterval",
 			new RubyOneArgMethod() {
 				protected RubyValue run(RubyValue receiver, RubyValue arg1, RubyBlock block) {
@@ -627,10 +692,7 @@ public class SyncThread extends RhoThread
 					protected RubyValue run(RubyValue receiver, RubyValue arg1, RubyBlock block) {
 						try{
 							String url = arg1.toStr();
-							RhoConf.getInstance().setPropertyByName("syncserver", url);
-							RhoConf.getInstance().saveToFile();
-							RhoConf.getInstance().loadConf();
-							getSyncEngine().logout();
+							getSyncEngine().setSyncServer(url);
 						}catch(Exception e)
 						{
 							LOG.ERROR("set_syncserver failed", e);

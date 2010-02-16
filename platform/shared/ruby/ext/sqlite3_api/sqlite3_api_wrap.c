@@ -1,4 +1,4 @@
-#include "sqlite3.h"
+#include "sqlite/sqlite3.h"
 #include "ruby.h"
 
 #include "logging/RhoLog.h"
@@ -51,7 +51,8 @@ static VALUE db_close(int argc, VALUE *argv, VALUE self){
 	
 	Data_Get_Struct(self, sqlite3 *, ppDB);
 	
-	rc = rho_sync_closeDB();//sqlite3_close(db);
+    //do not close sync db, close it at exit
+	rc = 0;//rho_sync_closeDB();//sqlite3_close(db);
 	
 	return INT2NUM(rc);
 }
@@ -184,6 +185,10 @@ static VALUE db_execute(int argc, VALUE *argv, VALUE self)
             case T_FLOAT:
             case T_BIGNUM:
                 sqlite3_bind_int64(statement, i+1, NUM2LL(arg));
+                break;
+            default:
+                //TODO: convert value to string
+                rb_raise(rb_eArgError, "could not execute statement: not supported arg type.");
                 break;
             }
         }

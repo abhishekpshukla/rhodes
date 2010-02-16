@@ -200,9 +200,13 @@ class Array
 #    end
 	
     def join(sepString="")
-        return to_s if sepString.nil? || sepString == ""
+        #return to_s if sepString.nil? || sepString == ""
 		
         result = ""
+        return result if length==0
+        
+        sepString = "" if sepString.nil?
+        
         (length - 1).times do |index|
             result += (self[index].to_s) + sepString
         end
@@ -331,6 +335,11 @@ class Hash
     def index value
         each {|k, v| return k if value == v }
         return nil
+    end
+    
+    def replace(other)
+        clear
+        update other
     end
 end
 
@@ -721,5 +730,18 @@ class String
     end
 	
     alias to_str to_s	
-    alias size length	
+    alias size length
+
+    def slice!(arg1)
+        res = slice(arg1)
+        self[arg1]= "" if res
+        res
+    end
+    
+    def slice!(arg1,arg2)
+        res = slice(arg1,arg2)
+        self[arg1,arg2]= "" if res
+        res
+    end
+    	
 end

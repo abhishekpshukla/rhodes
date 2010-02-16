@@ -60,7 +60,9 @@
 #define HAVE_STRNCASECMP 1
 
 /* Define to 1 if you have the `strndup' function. */
-/* #undef HAVE_STRNDUP */
+#if defined(OS_ANDROID)
+#define HAVE_STRNDUP 1
+#endif
 
 /* Define to 1 if you have the <syslog.h> header file. */
 #if !defined(_WIN32_WCE) && !defined(WIN32)
@@ -96,7 +98,7 @@
 #define HAVE_VPRINTF 1
 
 /* Define to 1 if you have the `vsnprintf' function. */
-#if !defined(_WIN32_WCE)&& !defined(WIN32)
+#if !defined(_WIN32_WCE) //&& !defined(WIN32)
 #define HAVE_VSNPRINTF 1
 #endif
 
@@ -141,7 +143,9 @@
 /* Define to `unsigned int' if <sys/types.h> does not define. */
 /* #undef size_t */
 
+#if !defined(OS_ANDROID)
 #include "tcmalloc/rhomem.h"
+#endif
 
 #if defined(WIN32)
 

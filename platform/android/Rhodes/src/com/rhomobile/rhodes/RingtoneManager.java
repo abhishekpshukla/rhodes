@@ -1,32 +1,18 @@
 package com.rhomobile.rhodes;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import android.content.Context;
 import android.database.Cursor;
 import android.media.Ringtone;
 import android.net.Uri;
-import android.util.Log;
 
-import com.xruby.runtime.builtin.RubyHash;
-import com.xruby.runtime.builtin.RubyString;
-import com.xruby.runtime.lang.RubyBasic;
-import com.xruby.runtime.lang.RubyBlock;
-import com.xruby.runtime.lang.RubyClass;
-import com.xruby.runtime.lang.RubyConstant;
-import com.xruby.runtime.lang.RubyException;
-import com.xruby.runtime.lang.RubyNoArgMethod;
-import com.xruby.runtime.lang.RubyOneArgMethod;
-import com.xruby.runtime.lang.RubyRuntime;
-import com.xruby.runtime.lang.RubyValue;
-
-public class RingtoneManager extends RubyBasic {
+public class RingtoneManager {
 
 	private static android.media.RingtoneManager manager = null;
 	private static Context context = null;
 	private static Ringtone current = null;
-	
-	public RingtoneManager(RubyClass c) {
-		super(c);
-	}
 	
 	private static void init() {
 		if (context == null)
@@ -40,7 +26,7 @@ public class RingtoneManager extends RubyBasic {
 		
 		stop();
 		
-		Log.d("RingtoneManager", "play");
+		Logger.D("RingtoneManager", "play");
 		current = android.media.RingtoneManager.getRingtone(context, Uri.parse(url));
 		current.play();
 	}
@@ -48,7 +34,7 @@ public class RingtoneManager extends RubyBasic {
 	public static void stop() {
 		init();
 		
-		Log.d("RingtoneManager", "stop");
+		Logger.D("RingtoneManager", "stop");
 		
 		if (current != null) {
 			current.stop();
@@ -56,59 +42,24 @@ public class RingtoneManager extends RubyBasic {
 		}
 	}
 	
-	public static void initMethods(RubyClass klass) {
-		klass.getSingletonClass().defineMethod("get_all_ringtones", new RubyNoArgMethod() {
-			@Override
-			protected RubyValue run(RubyValue receiver, RubyBlock block) {
-				init();
-				
-				RubyHash tmp = new RubyHash();
-				
-				Log.d("RingtoneManager", "Retrieve all ringtones");
-				Cursor cursor = manager.getCursor();
-				if (cursor.moveToFirst()) {
-					for(int i = 0; i < cursor.getCount(); i++) {
-						String name = manager.getRingtone(i).getTitle(context);
-						String value = manager.getRingtoneUri(i).toString();
-						Log.d("RingtoneManager", "Retrieved ringtone '" + name + "'");
-						tmp.setValue(new RubyString(name), new RubyString(value));
-					}
-				}
-				Log.d("RingtoneManager", "All ringtones retrieved");
-				
-				return tmp;
-			}
-		});
+	public static Map<String, String> getAllRingtones() {
+		init();
 		
-		klass.getSingletonClass().defineMethod("play", new RubyOneArgMethod() {
-			@Override
-			protected RubyValue run(RubyValue receiver, RubyValue arg,
-					RubyBlock block) {
-				try {
-					String fullName = arg.toStr();
-					play(fullName);
-				} catch (Exception e) {
-					throw new RubyException(RubyRuntime.MediaErrorClass,
-							"in `" + this.getID() + "': " + e.getMessage());
-				}
-				
-				return RubyConstant.QNIL;
-			}
-		});
+		Map<String, String> retval = new HashMap<String, String>();
 		
-		klass.getSingletonClass().defineMethod("stop", new RubyNoArgMethod() {
-			@Override
-			protected RubyValue run(RubyValue receiver, RubyBlock block) {
-				try {
-					stop();
-				} catch (Exception e) {
-					throw new RubyException(RubyRuntime.MediaErrorClass,
-							"in `" + this.getID() + "': " + e.getMessage());
-				}
-				
-				return RubyConstant.QNIL;
+		Logger.D("RingtoneManager", "Retrieve all ringtones");
+		Cursor cursor = manager.getCursor();
+		if (cursor.moveToFirst()) {
+			for(int i = 0; i < cursor.getCount(); i++) {
+				String name = manager.getRingtone(i).getTitle(context);
+				String value = manager.getRingtoneUri(i).toString();
+				Logger.D("RingtoneManager", "Retrieved ringtone '" + name + "'");
+				retval.put(name, value);
 			}
-		});
+		}
+		Logger.D("RingtoneManager", "All ringtones retrieved");
+		
+		return retval;
 	}
-
+	
 }

@@ -47,6 +47,7 @@ def startsim
   args << "/no-compact-filesystem"
     
   if $bbver !~ /^4\.[012](\..*)?$/
+    args << "/sdcard-inserted=true"
     args << "/fs-sdcard=true"
   end
         
@@ -102,10 +103,19 @@ def autosign
 
 end
 
+def create_alx_file(src,trg)
+    rbText = ERB.new( IO.read($builddir + "/" + src + "Alx.erb") ).result
+	fAlx = File.new($targetdir + "/" + trg + ".alx", "w")
+    fAlx.write(rbText)
+    fAlx.close()
+end
+
 
 namespace "config" do
   task :bb => ["config:common"] do
     $config["platform"] = "bb"
+
+    $rubypath = "res/build-tools/RhoRuby.exe" #path to RhoRuby
 
     $bbver = $app_config["bbver"].to_s
     $builddir = $config["build"]["bbpath"] + "/build"
@@ -115,24 +125,50 @@ namespace "config" do
     $preverified = $app_path + "/preverified"
     $targetdir = $bindir + "/target/" + $bbver
     $rubyVMdir = $app_path + "/RubyVM"
-    $excludelib = ['**/singleton.rb','**/rational.rb','**/rhoframework.rb','**/date.rb']
+    $excludelib = ['**/singleton.rb','**/rational.rb','**/rhoframework.rb','**/dateOrig.rb']
     $compileERB = $app_path + "/build/compileERB.rb"
     $tmpdir =  $bindir +"/tmp"
-    $excludeapps = "public/js/iui/**,**/jquery*"
 
     $assetfolder = $app_path + "/public-" + "bb-" + $bbver
 
-    $outfilebase = $app_config["name"].nil? ? "rhodesApp" : $app_config["name"]
-    $outfilebase.gsub!(/[^A-Za-z_0-9]/, '_')
+    $appname = $app_config["name"].nil? ? "rhodesApp" : $app_config["name"]
+    $outfilebase = $appname.gsub(/[^A-Za-z_0-9]/, '_')
+    $bundleClassName = $outfilebase + '_'  unless $bundleClassName
     
     $rhobundleimplib = $config["env"]["paths"][$bbver]["jde"] + "/lib/net_rim_api.jar;" +
       $preverified+"/RubyVM.jar"
     $rhodesimplib = $rhobundleimplib + ";"+ $preverified+"/RhoBundle.jar"
+    
+    mkdir_p $bindir unless File.exists? $bindir
+    rm_rf $tmpdir
+    mkdir_p $tmpdir unless File.exists? $tmpdir
+    
   end
 end
 
 namespace "build" do
   namespace "bb" do
+    task :alx => ["config:bb"] do
+        create_alx_file('rhodesApp', $outfilebase)
+        create_alx_file('RhoBundle', 'RhoBundle')
+    end
+    
+    def runPreverify(args)  
+      jdehome = $config["env"]["paths"][$bbver]["jde"]
+    
+      startdir = pwd      
+      chdir $tmpdir
+      puts Jake.run(jdehome + "/bin/preverify.exe",args)
+      chdir startdir
+      
+      unless $? == 0
+        rm_rf $tmpdir
+        puts "Error preverifying"
+        exit 1
+      end
+      $stdout.flush
+    end
+    
 #    desc "Build rhoBundle"
     #XXX change to ns build, rhobundle
     task :rhobundle => :rubyvm do
@@ -144,28 +180,33 @@ namespace "build" do
       Rake::Task["build:bundle:xruby"].execute
 
       rm_rf $srcdir
+      rm_rf $preverified + "/RhoBundle.jar" if File.exists? $preverified + "/RhoBundle.jar"
+      rm_rf $rhobundledir + "/RhoBundle.jar" if File.exists? $rhobundledir + "/RhoBundle.jar"
 
       #XXX make preverify function in Jake
       args = []
+      #args << "-verbose"
       args << "-classpath"
       args << '"' + jdehome + "/lib/net_rim_api.jar;"+$preverified+"/RubyVM.jar\""
       args << "-d"
-      args << $preverified
-      args << $bindir + "/RhoBundle.jar"
-      puts Jake.run(jdehome + "/bin/preverify.exe",args)
-      unless $? == 0
-        puts "Error preverifying"
-        exit 1
-      end
-      $stdout.flush
+      args << '"' + $preverified + '"'
+      args << '"' + $bindir + "/RhoBundle.jar\""
+      runPreverify(args)
 
       mkdir_p $rhobundledir unless File.exists? $rhobundledir
       cp $preverified + "/RhoBundle.jar", $rhobundledir + "/RhoBundle.jar"
       
     end
 
-    task :devrhobundle => :rhobundle do
+    task :set_dev_outname do
+        $bundleClassName = "rhodes_"
+    end
+    
+    task :devrhobundle => [:set_dev_outname,:rhobundle] do
       cp $preverified + "/RhoBundle.jar", "platform/bb/RhoBundle/RhoBundle.jar"
+      
+      sdcardpath = $config["env"]["paths"][$bbver]["jde"] +"/simulator/sdcard/Rho/rhodes/apps/rhoconfig.txt"
+      cp $app_path+"/rhoconfig.txt", sdcardpath if File.exists? sdcardpath
     end
     
 #    desc "Build RubyVM"
@@ -192,7 +233,7 @@ namespace "build" do
         args << "-target"
         args << "1.3"
         args << "-nowarn"
-        args << "@#{$builddir}/RubyVM_build.files"
+        args << "\"@#{$builddir}/RubyVM_build.files\""
         puts Jake.run(javac,args)
         unless $? == 0
           puts "Error compiling java code"
@@ -204,14 +245,9 @@ namespace "build" do
         args << "-classpath"
         args << '"' + jdehome + "/lib/net_rim_api.jar\""
         args << "-d"
-        args << $tmpdir + "/RubyVM.preverify"
+        args << '"' + $tmpdir + "/RubyVM.preverify\""
         args << '"' + $tmpdir + "/RubyVM\""
-        puts Jake.run(jdehome + "/bin/preverify.exe",args)
-        unless $? == 0
-          puts "Error preverifying"
-          exit 1
-        end
-        $stdout.flush
+        runPreverify(args)
 
         Jake.jar($preverified+"/RubyVM.jar", $builddir + "/RubyVM_manifest.mf", $tmpdir + "/RubyVM.preverify",true)
         $stdout.flush
@@ -219,8 +255,6 @@ namespace "build" do
         puts 'RubyVM.jar is up to date'
         $stdout.flush
       end
-
-
 
       rm_rf $tmpdir
       mkdir_p $tmpdir
@@ -281,10 +315,10 @@ namespace "build" do
         args << "-target"
         args << "1.3"
         args << "-nowarn"
-        args << "@#{vsrclist}"
+        args << "\"@#{vsrclist}\""
         #args << "@RubyVM_build.files"
-        args << "@#{$builddir}/hsqldb_build.files"
-        args << "@#{$builddir}/rhodes_build.files"
+        args << "\"@#{$builddir}/hsqldb_build.files\""
+        args << "\"@#{$builddir}/rhodes_build.files\""
         puts "\texecuting javac"
         puts Jake.run(javac,args)
         unless $? == 0
@@ -306,13 +340,7 @@ namespace "build" do
         args << "-d"
         args << '"' + $preverified + '"'
         args << '"' + $bindir + "/rhodes.jar\""
-        puts Jake.run(jdehome + "/bin/preverify.exe",args)
-        unless $? == 0
-          puts "Error preverifying"
-          exit 1
-        end
-        $stdout.flush
-
+        runPreverify(args)
       else
         puts "rhodes up to date"
       end
@@ -337,8 +365,8 @@ namespace "package" do
         puts "Error in RAPC"
         exit 1
       end
-      cp $builddir + "/RhoBundle.alx", $targetdir if not FileUtils.uptodate?($targetdir + "/RhoBundle.alx", $builddir + "/RhoBundle.alx")
-
+      
+      create_alx_file('RhoBundle', 'RhoBundle')
     end
 
 #    desc "Package rubyVM"
@@ -368,14 +396,12 @@ namespace "package" do
 
 #    desc "Package rhodesApp"
     task :rhodes => ["build:bb:rhodes"] do
-      appname = $app_config["name"].nil? ? "rhodesApp" : $app_config["name"]
-
       if not FileUtils.uptodate?($targetdir + '/' + $outfilebase + '.cod',$preverified + "/rhodes.jar")
         Jake.rapc($outfilebase,
           $targetdir,
           $rhodesimplib,
           '"' +  $preverified + "/rhodes.jar" +'"',
-          appname,
+          $appname,
           $app_config["vendor"],
           $app_config["version"],
           "resources/icon.png",
@@ -387,10 +413,8 @@ namespace "package" do
           exit 1
         end
         $stdout.flush
-        if not FileUtils.uptodate?( $targetdir + "/" + $outfilebase + ".alx", $builddir + "/rhodesApp.alx" )
-          cp $builddir + "/rhodesApp.alx", $targetdir + "/" + $outfilebase + ".alx"
-          freplace( $targetdir + "/" + $outfilebase + ".alx", /rhodesApp/, appname )
-        end
+        
+        create_alx_file('rhodesApp', $outfilebase)
       else
         puts 'rhodes .cod files are up to date'
         $stdout.flush
@@ -426,13 +450,11 @@ namespace "package" do
 
       Jake.jar($bindir + "/" + $outfilebase + ".jar",$builddir + "/manifest.mf",$tmpdir,true)
 
-      appname = $app_config["name"].nil? ? "rhodesApp" : $app_config["name"]
-
       Jake.rapc($outfilebase,
         $targetdir,
         jdehome + "/lib/net_rim_api.jar",
         '"' +  $bindir + "/" + $outfilebase + ".jar" +'"',
-        appname,
+        $appname,
         $app_config["vendor"],
         $app_config["version"],
         "resources/icon.png",
@@ -444,14 +466,16 @@ namespace "package" do
         exit 1
       end
       $stdout.flush
-      if not FileUtils.uptodate?( $targetdir + "/" + $outfilebase + ".alx", $builddir + "/rhodesApp.alx" )
-        cp $builddir +"/rhodesApp.alx", $targetdir + "/" + $outfilebase + ".alx"
-        freplace( $targetdir + "/" + $outfilebase + ".alx", /rhodesApp/, appname )
-      end
+      
+      create_alx_file('rhodesApp', $outfilebase)
     end
 
+    task :set_dev_build do
+        $dev_build = true
+    end
+    
 #    desc "Package all dev (each part in separate package)"
-    task :dev => [ :rubyvm,:rhobundle,:rhodes] do
+    task :dev => [ :set_dev_build, :rubyvm,:rhobundle,:rhodes] do
     end
   end
 end
@@ -567,31 +591,32 @@ namespace "run" do
   end
   
   desc "Builds everything, loads and starts bb sim and mds"
-  task :bb => ["run:bb:stopmdsandsim", "package:bb:dev"] do
-    #sim = $config["env"]["paths"][$bbver]["sim"]
+  task :bb => ["run:bb:stopmdsandsim", "package:bb:production"] do
     jde = $config["env"]["paths"][$bbver]["jde"]
     
     cp_r File.join($targetdir,"/."), jde + "/simulator"
     
     startmds
     startsim
+    $stdout.flush
+  end
 
-    #    puts "sleeping to allow simulator to get started"
-    #    sleep 45
-  
-    #    command = '"' + jde + "/simulator/fledgecontroller.exe\""
-    #    args = []
-    #    args << "/session="+sim
-    #    args << "\"/execute=LoadCod(" + Jake.get_absolute(File.join($targetdir,"rhodesApp.cod")) + ")\""
-  
-    #    Jake.run(command,args, jde + "/simulator")
+  desc "Same as run:bb, but only supports one app at a time and works faster"
+  task :bbdev => ["run:bb:stopmdsandsim", "package:bb:dev"] do
+    jde = $config["env"]["paths"][$bbver]["jde"]
+    
+    cp_r File.join($targetdir,"/."), jde + "/simulator"
+    
+    startmds
+    startsim
     $stdout.flush
   end
   
 end
 
 namespace "config" do
-  task :checkbb do
+  desc "Check local blackberry configuration"
+  task :checkbb => ["config:bb"] do
     javahome = $config["env"]["paths"]["java"]
     jdehome = $config["env"]["paths"][$bbver]["jde"]
     mdshome = $config["env"]["paths"][$bbver]["mds"]

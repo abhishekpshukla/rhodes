@@ -2,12 +2,6 @@ var fso,output_file;
 
 //TBD need to move sources and settings to a separate config files
 
-var sources = new Object();
-sources['db'] = ["db","..\\..\\..\\res\\build-tools\\db"];
-//sources['sqlite3']= ["sqlite3","..\\..\\shared\\sqlite3"];
-sources['lib']= ["lib","..\\bin\\RhoBundle\\lib"];
-sources['apps']= ["apps","..\\bin\\RhoBundle\\apps"];
-
 var settings = new Object();
 settings['wm6'] = ['Windows Mobile 6 Professional SDK (ARMV4I)','VersionMin=5.02','VersionMax=6.99'];
 
@@ -32,7 +26,7 @@ function expand_source(es,name,path,section,destination) {
    	}
 }
 
-function expand_sources() {
+function expand_sources(sources) {
 	var es = new Array();
 	for (var i in sources) {
 		expand_source(es,sources[i][0],sources[i][1],"copyfiles","rho");
@@ -156,19 +150,19 @@ function fill_copyfiles_sections(es,f) {
 	}
 }
 
-function pinf(platform,es) {
+function pinf(platform,es,name,vendor) {
 
 	p("[Version]");
 	p("Signature=\"$Windows NT$\"");
-	p("Provider=\"rhomobile\"");
+	p("Provider=\""+vendor+"\"");
 	p("CESignature=\"$Windows CE$\"");
 	p("");
 	p("[CEStrings]");
-	p("AppName=\"rhodes\"");
+	p("AppName=\""+name+"\"");
 	p("InstallDir=%CE1%\\%AppName%");
 	p("");
 	p("[Strings]");
-	p("Manufacturer=\"rhomobile\"");
+	p("Manufacturer=\""+vendor+"\"");
 	p("");
 	p("[CEDevice]");
 	p(settings[platform][1]);
@@ -199,7 +193,7 @@ function pinf(platform,es) {
 	fill_copyfiles_sections(es,f);
 	p("");
 	p("[Shortcuts]");
-	p("Rhodes,0,\"rhodes.exe\",%CE11%");
+	p("\""+name+"\",0,\"rhodes.exe\",%CE11%");
 	p("");
 	p("[RegKeys]");
 	p("");
@@ -210,8 +204,14 @@ function main() {
 	fso = new ActiveXObject("Scripting.FileSystemObject");
 	output_file = fso.CreateTextFile(args(0));
 
-	var es = expand_sources();
-	pinf(args(1),es);
+    var sources = new Object();
+    sources['db'] = ["db","..\\..\\..\\res\\build-tools\\db"];
+    //sources['sqlite3']= ["sqlite3","..\\..\\shared\\sqlite3"];
+    sources['lib']= ["lib",args(4)+"/lib"];
+    sources['apps']= ["apps",args(4)+"/apps"];
+
+	var es = expand_sources(sources);
+	pinf(args(1),es,args(2),args(3));
 
 	output_file.Close();
 }

@@ -1,12 +1,13 @@
 #import "WebViewController.h"
-#import "ruby/ext/rho/rhoruby.h"
+//#import "ruby/ext/rho/rhoruby.h"
 //#import "UniversalLock.h"
 #import "common/RhoConf.h"
-#import "sync/syncthread.h"
+//#import "sync/syncthread.h"
+#import "common/RhodesApp.h"
 #import "logging/RhoLog.h"
 #undef DEFAULT_LOGCATEGORY
 #define DEFAULT_LOGCATEGORY "WebViewCtrl"
-
+/*
 static char currentLocation[4096] = "";
 
 //INIT_LOCK(current_location); // racing condition on thid lock, need to fix it somehow
@@ -14,6 +15,7 @@ static char currentLocation[4096] = "";
 void set_current_location(CFStringRef location) {
 	//LOCK(current_location);
 	CFStringGetCString((CFStringRef)location, currentLocation, sizeof(currentLocation), CFStringGetSystemEncoding());
+	
 	char* fragment = strstr(currentLocation,"#");
 	if (fragment) *fragment = 0; //cut out fragment
 	RAWLOG_INFO1("Current location: %s",currentLocation);
@@ -26,17 +28,21 @@ void set_current_location(CFStringRef location) {
 	
 }
 
-
 char* get_current_location() {
 	//LOCK(current_location);
 	return currentLocation;
 	//UNLOCK(current_location);
-}
+}*/
 
 @implementation WebViewController
 
-@synthesize viewHomeUrl, viewOptionsUrl;
+//@synthesize viewHomeUrl, viewOptionsUrl;
 @synthesize actionTarget, onShowLog, toolbar, webView;
+
+- (void)viewDidAppear:(BOOL)animated
+{
+	[super viewDidAppear:animated];
+}
 
 -(void)viewDidLoad {
 	[super viewDidLoad];
@@ -65,9 +71,23 @@ char* get_current_location() {
 	[webView loadHTMLString:data baseURL: [NSURL URLWithString:@""]];
 }
 
+-(void)showToolbar:(BOOL)show {
+    toolbar.hidden = !show;
+    if (show) {
+        [window sendSubviewToBack:webView];
+        [window bringSubviewToFront:toolbar];
+    }
+    else {
+        [window sendSubviewToBack:toolbar];
+        [window bringSubviewToFront:webView];
+    }
+    [webView sizeToFit];
+}
+
 -(void)navigate:(NSString*)url {
-    RAWLOG_INFO("Navigating to the specifyed URL");
-	[webView loadRequest:[NSURLRequest requestWithURL: [NSURL URLWithString:url]]];
+    //RAWLOG_INFO1("Navigating to the specifyed URL: %s",  [url cStringUsingEncoding:[NSString defaultCStringEncoding]]);
+    NSString *escapedUrl = [url stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+	[webView loadRequest:[NSURLRequest requestWithURL: [NSURL URLWithString:escapedUrl]]];
 }
 
 -(void)executeJs:(JSString*)js {
@@ -76,14 +96,19 @@ char* get_current_location() {
 }
 
 -(void)navigateRedirect:(NSString*)url {
+    //RAWLOG_INFO1("Navigate (redirect) to: %s", [url cStringUsingEncoding:[NSString defaultCStringEncoding]]);
 	NSString* escapedUrl = [url stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]; 
-	escapedUrl = [escapedUrl stringByReplacingOccurrencesOfString: @"&" withString: @"%26"];
 	NSString* redirector = [@"http://localhost:8080/system/redirect_to?url=" stringByAppendingString:escapedUrl];
 	[webView loadRequest:[NSURLRequest requestWithURL: [NSURL URLWithString:redirector]]];
 }
 
--(IBAction)goBack {
-	[webView goBack];
+-(IBAction)goBack 
+{
+    const char* szBackUrl = rho_rhodesapp_getappbackurl();
+    if ( szBackUrl && *szBackUrl )
+        [self navigateRedirect:[NSString stringWithCString:szBackUrl encoding:[NSString defaultCStringEncoding]]];    
+    else
+	    [webView goBack];
 }
 
 -(IBAction)goForward {
@@ -91,19 +116,26 @@ char* get_current_location() {
 }
 
 -(IBAction)goHome {
-	if (viewHomeUrl != NULL) {
-		[self navigateRedirect:viewHomeUrl];
-	}
+	const char* url = rho_rhodesapp_getstarturl();
+	[self navigateRedirect:[NSString stringWithCString:url encoding:[NSString defaultCStringEncoding]]];
+	//if (viewHomeUrl != NULL) {
+	//	[self navigateRedirect:viewHomeUrl];
+	//}
 }
 
 -(IBAction)goOptions {
-	if (viewOptionsUrl != NULL) {
-		[self navigateRedirect:viewOptionsUrl];
-	}
+	const char* url = rho_rhodesapp_getoptionsurl();
+	[self navigateRedirect:[NSString stringWithCString:url encoding:[NSString defaultCStringEncoding]]];
+	
+	//if (viewOptionsUrl != NULL) {
+	//	[self navigateRedirect:viewOptionsUrl];
+	//}
 }
 
 -(IBAction)refresh {
 	[webView reload];
+	//const char* url = rho_rhodesapp_getcurrenturl();
+	//[self navigateRedirect:[NSString stringWithCString:url encoding:[NSString defaultCStringEncoding]]];
 }
 
 -(void)setActivityInfo:(NSString *)labelText {
@@ -144,15 +176,15 @@ char* get_current_location() {
 	} else {
 		forwardBtn.enabled = NO;
 	}
-	
-	NSString* location = [webview stringByEvaluatingJavaScriptFromString:@"location.href"];
-	set_current_location((CFStringRef)location);
+    
+	//NSString* location = [webview stringByEvaluatingJavaScriptFromString:@"location.href"];
+	//rho_rhodesapp_keeplastvisitedurl( [location cStringUsingEncoding:[NSString defaultCStringEncoding]] );									 
 }
-
+/*
 - (void)runSync
 {
 	rho_sync_doSyncAllSources(TRUE);
-}
+}*/
 
 - (void)actionShowLog:(id)sender
 {

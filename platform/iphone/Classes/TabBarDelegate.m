@@ -10,9 +10,19 @@
 #import "WebViewController.h"
 #import "AppManager.h"
 
+#import "logging/RhoLog.h"
+#undef DEFAULT_LOGCATEGORY
+#define DEFAULT_LOGCATEGORY "TabBarDelegate"
+
 @implementation TabBarDelegate
 
 @synthesize tabBarController, mainWindow, tabBar, barItems, activeTab;
+
+- (id)init {
+    [super init];
+    tabBarController.selectedIndex = 0;
+    return self;
+}
 
 - (void)dealloc {
 	[tabBarController release];
@@ -21,18 +31,42 @@
 	[super dealloc];
 }
 
+- (int)getSelectedIndex {
+    int index = tabBarController.selectedIndex;
+    int count = [barItems count];
+    if (index >= count) index = count - 1;
+    if (index < 0) index = 0;
+    tabBarController.selectedIndex = index;
+    return index;
+}
+
 - (void)loadTabBarItemFirstPage:(BarItem*)item {
 	if (item.loaded == NO || item.reload == YES) {
-		NSString* escapedUrl = [item.location stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]; 
-		escapedUrl = [escapedUrl stringByReplacingOccurrencesOfString: @"&" withString: @"%26"];
-		NSString* startLocation = [@"http://localhost:8080/system/redirect_to?url=" stringByAppendingString:escapedUrl];
-		[(UIWebView*)[item.viewController view] loadRequest:[NSURLRequest requestWithURL: [NSURL URLWithString:startLocation]]];
+        [item.viewController navigateRedirect:item.location];
 		item.loaded = YES;
 	}
 }
 
 - (void)loadTabBarItemLocation:(BarItem*)item url:(NSString*)url {
-	[item.viewController navigateRedirect:url];
+    int index = [self getSelectedIndex];
+    BarItem *activeBar = (BarItem*)[barItems objectAtIndex:index];
+    if (activeBar == item || item.loaded == YES)
+        [item.viewController navigateRedirect:url];
+    else
+        item.location = url;
+}
+
+- (void)refresh:(BarItem*)item {
+    int index = [self getSelectedIndex];
+    BarItem *activeBar = (BarItem*)[barItems objectAtIndex:index];
+    if (activeBar == item || item.loaded == YES)
+        [item.viewController refresh];
+    else
+        item.reload = YES;
+}
+
+- (void)executeJs:(BarItem*)item js:(JSString*)js {
+    [item.viewController executeJs:js];
 }
 
 - (void)createTabBar:(UIWindow*)window {
@@ -41,6 +75,7 @@
 	if(!self.tabBarController) {
 		self.tabBarController = [[UITabBarController alloc] initWithNibName:nil bundle:nil];
 		self.tabBarController.delegate = self;
+        self.tabBarController.selectedIndex = 0;
 	}
 	
 	tabBarController.moreNavigationController.navigationBar.barStyle = UIBarStyleBlackOpaque;
@@ -55,10 +90,11 @@
 	// label, action, icon, reload
 	for(int i=0; i < barSize; i++) {
 		BarItem* item = [[BarItem alloc] init];
-		item.label = (NSString*)[tabBar.barItemDataArray objectAtIndex:i*4];
-		item.location = (NSString*)[tabBar.barItemDataArray objectAtIndex:(i*4)+1];
-		item.icon = (NSString*)[tabBar.barItemDataArray objectAtIndex:(i*4)+2];
-		item.reload = [(NSString*)[tabBar.barItemDataArray objectAtIndex:(i*4)+3] isEqualToString:@"true"] ? YES : NO;
+        int index = i*4;
+		item.label = (NSString*)[tabBar.barItemDataArray objectAtIndex:index++];
+		item.location = (NSString*)[tabBar.barItemDataArray objectAtIndex:index++];
+		item.icon = (NSString*)[tabBar.barItemDataArray objectAtIndex:index++];
+		item.reload = [(NSString*)[tabBar.barItemDataArray objectAtIndex:index++] isEqualToString:@"true"] ? YES : NO;
 		if (item.label && item.location && item.icon) {
 			WebViewController *subController = [[WebViewController alloc] initWithNibName:nil bundle:nil];
 			UIWebView *wView = [[UIWebView alloc] init];
@@ -81,13 +117,28 @@
 	[self.mainWindow addSubview:tabBarController.view];
 }
 
+- (void)deleteTabBar {
+    [barItems release];
+    barItems = nil;
+    [tabBarController.view removeFromSuperview];
+    [tabBarController release];
+    tabBarController = nil;
+}
+
 - (void)tabBarController:(UITabBarController *)tabBarController didSelectViewController:(UIViewController *)viewController {
 	if(self.tabBarController.selectedIndex > barItems.count) {
 		[NSException raise:@"Exception" format:@"Rhodes currently only supports up to 5 tabs.  Please change your tabs array and try again."];
 	} else {
-		[self loadTabBarItemFirstPage:(BarItem*)[barItems objectAtIndex:self.tabBarController.selectedIndex]];
+        int index = [self getSelectedIndex];
+		[self loadTabBarItemFirstPage:(BarItem*)[barItems objectAtIndex:index]];
 	}
 	self.activeTab = self.tabBarController.selectedIndex;
+}
+
+- (void)switchTab:(int)index {
+    self.tabBarController.selectedIndex = index;
+    self.tabBarController.selectedIndex = [self getSelectedIndex];
+    self.activeTab = self.tabBarController.selectedIndex;
 }
 
 @end

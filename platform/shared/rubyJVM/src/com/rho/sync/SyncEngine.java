@@ -45,6 +45,38 @@ public class SyncEngine implements NetRequest.IRhoSession
     int SYNC_VERSION() { return 2; }
     static String SYNC_ASK_ACTION() { return "/ask"; }
 	
+    static class SourceID
+    {
+        String m_strName = "";
+        String m_strUrl = "";
+        int m_nID;
+
+        public String toString()
+        {
+            if ( m_strName.length() > 0 )
+                return "name : " + m_strName;
+            else if ( m_strUrl.length() > 0 )
+                return "url : " + m_strUrl;
+
+            return "# : " + m_nID;
+        }
+        boolean isEqual(SyncSource src)
+        {
+            if ( m_strName.length() > 0 )
+                return src.getName().equals(m_strName);
+            else if ( m_strUrl.length() > 0 )
+            {
+            	URI uri1 = new URI(m_strUrl);
+            	URI uri2 = new URI(src.getUrl());
+            	
+            	return uri1.getPath().compareTo(uri2.getPath()) == 0;
+                //return src.getUrl().equals(m_strUrl);
+            }
+            
+            return m_nID == src.getID().intValue();
+        }
+    };
+    
     Vector/*<SyncSource*>*/ m_sources = new Vector();
     DBAdapter   m_dbAdapter;
     NetRequest m_NetRequest;
@@ -120,12 +152,11 @@ public class SyncEngine implements NetRequest.IRhoSession
 			    PROF.DESTROY_COUNTER("Data1");
 			    PROF.DESTROY_COUNTER("Pull");
 			    PROF.STOP("Sync");
-			    
 		    } else {
 		    	if ( m_sources.size() > 0 )
 		        {		    	
 			    	SyncSource src = (SyncSource)m_sources.elementAt(getStartSource());
-			    	src.m_strError = "Client is not logged in. No sync will be performed.";
+			    	//src.m_strError = "Client is not logged in. No sync will be performed.";
 			    	src.m_nErrCode = RhoRuby.ERR_CLIENTISNOTLOGGEDIN;
 			    	
 			    	getNotify().fireSyncNotification(src, true, src.m_nErrCode, "");
@@ -138,17 +169,13 @@ public class SyncEngine implements NetRequest.IRhoSession
 	    	LOG.ERROR("Sync failed.", exc);
 	    }
 	    
-	    setState(esNone);
+	    if ( getState() != esExit )
+	    	setState(esNone);
 	}
 
-	void doSyncSource(int nSrcId, String strSrcUrl, String strParams, String strAction, boolean bSearchSyncChanges,
+	void doSyncSource(SourceID oSrcID, String strParams, String strAction, boolean bSearchSyncChanges,
 			int nProgressStep)
 	{
-	    if ( strSrcUrl != null && strSrcUrl.length()>0 )
-	    	LOG.INFO( "Started synchronization of the data source url: " + strSrcUrl );
-	    else
-	    	LOG.INFO( "Started synchronization of the data source #" + nSrcId );
-		
 	    setState(esSyncSource);
 	    m_bStopByUser = false;
         SyncSource src = null;
@@ -156,17 +183,29 @@ public class SyncEngine implements NetRequest.IRhoSession
 	    try
 	    {
 		    loadAllSources();
-		    if ( strSrcUrl != null && strSrcUrl.length()>0 )
-		    	src = findSourceByUrl(strSrcUrl);
-		    else
-		    	src = findSourceByID(nSrcId);
+		    src = findSource(oSrcID);
 		    
 	        if ( src != null )
 	        {
+	            LOG.INFO("Started synchronization of the data source: " + src.getName() );
+	        	
 	        	src.m_strParams = strParams;
 	        	src.m_strAction = strAction;
 	        	src.m_bSearchSyncChanges = bSearchSyncChanges;
 	        	src.m_nProgressStep = nProgressStep;
+	        	if ( oSrcID.m_strUrl.length() != 0 )
+	        	{
+	        		try{
+		        		URI uri = new URI(oSrcID.m_strUrl);
+		        		src.setUrlParams(uri.getQueryString());
+		        		
+		        		if (uri.getScheme()!= null && uri.getScheme().length()>0)
+		        			src.setUrl(uri.getPathSpecificPart());
+	        		}catch(Exception exc)
+	        		{
+	        			LOG.ERROR("Malformed url when sync by url.", exc);
+	        		}
+	        	}
 	        	
 			    m_strSession = loadSession();
 			    if ( isSessionExist()  ) {
@@ -174,85 +213,75 @@ public class SyncEngine implements NetRequest.IRhoSession
 			        if ( getState() != esStop )
 			        {
 			        	getNotify().cleanLastSyncObjectCount();
+			        	
+					    PROF.CREATE_COUNTER("Net");	    
+					    PROF.CREATE_COUNTER("Parse");
+					    PROF.CREATE_COUNTER("DB");
+					    PROF.CREATE_COUNTER("Data");
+					    PROF.CREATE_COUNTER("Data1");
+					    PROF.CREATE_COUNTER("Pull");
+					    PROF.START("Sync");
+			        	
 			            src.sync();
+			            
+					    PROF.DESTROY_COUNTER("Net");	    
+					    PROF.DESTROY_COUNTER("Parse");
+					    PROF.DESTROY_COUNTER("DB");
+					    PROF.DESTROY_COUNTER("Data");
+					    PROF.DESTROY_COUNTER("Data1");
+					    PROF.DESTROY_COUNTER("Pull");
+					    PROF.STOP("Sync");
 			        }
 			    } else {
-			    	src.m_strError = "Client is not logged in. No sync will be performed.";
+			    	//src.m_strError = "Client is not logged in. No sync will be performed.";
 			    	src.m_nErrCode = RhoRuby.ERR_CLIENTISNOTLOGGEDIN;
 			    }
 		
-			    getNotify().fireSyncNotification(src, true, src.m_nErrCode, src.m_nErrCode == RhoRuby.ERR_NONE ? "Sync completed." : "");
+			    getNotify().fireSyncNotification(src, true, src.m_nErrCode, src.m_nErrCode == RhoRuby.ERR_NONE ? RhoRuby.getMessageText("sync_completed") : "");
 	        } else {
 	        	src = new SyncSource(this);
 		    	//src.m_strError = "Unknown sync source.";
 		    	src.m_nErrCode = RhoRuby.ERR_RUNTIME;
 	        	
-	    	    if ( strSrcUrl != null && strSrcUrl.length()>0 )
-	    	    	throw new RuntimeException("Sync one source : Unknown Source Url: " + strSrcUrl );
-	    	    else
-	    	    	throw new RuntimeException("Sync one source : Unknown Source ID: " + nSrcId );
+    	    	throw new RuntimeException("Sync one source : Unknown Source " + oSrcID.toString() );
 	        }
 	    } catch(Exception exc) {
-	    	if ( strSrcUrl != null && strSrcUrl.length()>0 )	    	
-	    		LOG.ERROR("Sync source: " + strSrcUrl + " failed.", exc);
-	    	else
-	    		LOG.ERROR("Sync source: " + nSrcId + " failed.", exc);
+    		LOG.ERROR("Sync source " + oSrcID.toString() + " failed.", exc);
 	    	
-	    	if ( src.m_nErrCode == RhoRuby.ERR_NONE )
+	    	if ( src != null && src.m_nErrCode == RhoRuby.ERR_NONE )
 	    		src.m_nErrCode = RhoRuby.ERR_RUNTIME;
 	    	
 	    	getNotify().fireSyncNotification(src, true, src.m_nErrCode, "" ); 
 	    }
         
 	    getNotify().cleanCreateObjectErrors();
-	    setState(esNone);
-	    
-	    if ( strSrcUrl != null && strSrcUrl.length()>0 )
-	    	LOG.INFO( "End synchronization of the data source url: " + strSrcUrl );
-	    else
-	    	LOG.INFO( "End synchronization of the data source #" + nSrcId );
+	    if ( getState() != esExit )
+	    	setState(esNone);
 	}
 
-	SyncSource findSourceByID(int nSrcId)
+	SyncSource findSource(SourceID oSrcID)
 	{
-	    for( int i = 0; i < m_sources.size(); i++ )
+	    for( int i = 0; i < (int)m_sources.size(); i++ )
 	    {
 	        SyncSource src = (SyncSource)m_sources.elementAt(i);
-	        if ( src.getID().intValue() == nSrcId )
+	        if ( oSrcID.isEqual(src) )
 	            return src;
 	    }
 	    
 	    return null;
 	}
 	
-	SyncSource findSourceByUrl(String strSrcUrl)
-	{
-	    for( int i = 0; i < m_sources.size(); i++ )
-	    {
-	        SyncSource src = (SyncSource)m_sources.elementAt(i);
-	        if ( src.getUrl().equals(strSrcUrl) )
-	            return src;
-	    }
-	    
-	    return null;
-	}
-
 	SyncSource findSourceByName(String strSrcName)
 	{
-	    for( int i = 0; i < m_sources.size(); i++ )
-	    {
-	        SyncSource src = (SyncSource)m_sources.elementAt(i);
-	        if ( src.getName().equals(strSrcName) )
-	            return src;
-	    }
-	    
-	    return null;
+	    SourceID oSrcID = new SourceID();
+	    oSrcID.m_strName = strSrcName;
+	    return findSource(oSrcID);
 	}
 	
 	void loadAllSources()throws DBException
 	{
 	    m_sources.removeAllElements();
-	    IDBResult res = getDB().executeSQL("SELECT source_id,source_url,token,name from sources ORDER BY source_id");
+	    IDBResult res = getDB().executeSQL("SELECT source_id,source_url,token,name from sources ORDER BY priority");
 	
 	    for ( ; !res.isEnd(); res.next() )
 	    { 
@@ -269,7 +298,7 @@ public class SyncEngine implements NetRequest.IRhoSession
 	        
 	        String name = res.getStringByIdx(3);
 	        if ( strUrl.length() > 0 )
-	            m_sources.addElement( new SyncSource( res.getIntByIdx(0), strUrl, name, res.getUInt64ByIdx(2), this) );
+	            m_sources.addElement( new SyncSource( res.getIntByIdx(0), strUrl, name, res.getLongByIdx(2), this) );
 	    }
 	}
 
@@ -280,11 +309,13 @@ public class SyncEngine implements NetRequest.IRhoSession
 		synchronized( m_mxLoadClientID )
 		{
 		    boolean bResetClient = false;
-	        IDBResult res = getDB().executeSQL("SELECT client_id,reset from client_info");
+		    int nInitialSyncState = 0;
+	        IDBResult res = getDB().executeSQL("SELECT client_id,reset,initialsync_state from client_info");
 	        if ( !res.isEnd() )
 	        {
 	            clientID = res.getStringByIdx(0);
 	            bResetClient = res.getIntByIdx(1) > 0;
+	            nInitialSyncState = res.getIntByIdx(2);
 	        }
 		
 		    if ( clientID.length() == 0 )
@@ -296,10 +327,25 @@ public class SyncEngine implements NetRequest.IRhoSession
 		    }else if ( bResetClient )
 		    {
 		    	if ( !resetClientIDByNet(clientID) )
+		    	{
+			    	if ( m_sources.size() > 0 )
+			        {		    	
+				    	SyncSource src = (SyncSource)m_sources.elementAt(getStartSource());
+				    	src.m_nErrCode = RhoRuby.ERR_REMOTESERVER;
+				    	
+				    	getNotify().fireSyncNotification(src, true, src.m_nErrCode, "");
+			        }else
+			        	getNotify().fireSyncNotification(null, true, RhoRuby.ERR_REMOTESERVER, "");
+		    		
 		    		stopSync();
+		    	}
 		    	else
 		    		getDB().executeSQL("UPDATE client_info SET reset=? where client_id=?", new Integer(0), clientID );	    	
 		    }
+
+//TODO: doInitialSync 		    
+//		    if ( nInitialSyncState == 0 && isContinueSync() )
+//		    	doInitialSync(clientID);
 		}
 		
 		return clientID;
@@ -310,8 +356,9 @@ public class SyncEngine implements NetRequest.IRhoSession
 	    String serverUrl = RhoConf.getInstance().getPath("syncserver");
 	    String strUrl = serverUrl + "clientreset";
 	    String strQuery = "?client_id=" + strClientID;
+	    strQuery += "&" + ClientRegister.getInstance().getRegisterBody();
 	    
-	    NetResponse resp = getNet().pullData(strUrl+strQuery, "", this);
+	    NetResponse resp = getNet().pullData(strUrl+strQuery, this);
 	    return resp.isOK();
 	}
 	
@@ -322,8 +369,9 @@ public class SyncEngine implements NetRequest.IRhoSession
 	    String serverUrl = RhoConf.getInstance().getPath("syncserver");
 	    String strUrl = serverUrl + "clientcreate";
 	    String strQuery = SYNC_SOURCE_FORMAT();
+	    strQuery += "&" + ClientRegister.getInstance().getRegisterBody();
 	    
-	    NetResponse resp = getNet().pullData(strUrl+strQuery, "", this);
+	    NetResponse resp = getNet().pullData(strUrl+strQuery, this);
 	    if ( resp.isOK() && resp.getCharData() != null )
 	    {
 	    	String szData = resp.getCharData();
@@ -337,6 +385,79 @@ public class SyncEngine implements NetRequest.IRhoSession
 	    return "";
 	}
 
+	void doInitialSync(String strClientID)throws Exception
+	{
+		LOG.INFO("Initial sync: start");		
+    	getNotify().fireInitialSyncNotification(false, RhoRuby.ERR_NONE);
+		
+	    String serverUrl = RhoConf.getInstance().getPath("syncserver");
+	    String strUrl = serverUrl + "initialsync";
+	    String strQuery = "?client_id=" + strClientID;
+	    
+	    /*NetResponse resp = getNet().pullData(strUrl+strQuery, this);
+        if ( !resp.isOK() )
+        {
+        	LOG.ERROR("Initial sync failed: server return an error.");
+        	stopSync();
+        	getNotify().fireInitialSyncNotification(true, RhoRuby.ERR_REMOTESERVER);
+        	return;
+        }
+        
+        String strDataUrl = "", strScriptUrl="";
+	    if ( resp.getCharData() != null )
+	    {
+			LOG.INFO("Initial sync: got response from server: " + resp.getCharData());		
+	    	
+	    	String szData = resp.getCharData();
+	        JSONEntry oJsonEntry = new JSONEntry(szData);
+	
+	        JSONEntry oJsonObject = oJsonEntry.getEntry("initialsync");
+	        if ( !oJsonObject.isEmpty() )
+	        {
+	        	strDataUrl = oJsonObject.getString("data");
+	        	strScriptUrl = oJsonObject.getString("script");
+	        }
+	    }
+	    if ( strDataUrl.length() == 0 || strScriptUrl.length() == 0)
+	    {
+        	LOG.ERROR("Initial sync failed: server return incorrect response.");
+        	stopSync();
+        	getNotify().fireInitialSyncNotification(true, RhoRuby.ERR_REMOTESERVER);
+        	return;
+	    }*/
+
+	    String strPath = getDB().getDBPath();
+	    String fDataName =  strPath + "_initial.data";
+		/*LOG.INFO("Initial sync: download data from server: " + strDataUrl);		
+	    NetResponse resp1 = getNet().pullFile(strDataUrl+strQuery, fDataName, this);
+        if ( !resp1.isOK() )
+        {
+        	LOG.ERROR("Initial sync failed: cannot download database file.");
+        	stopSync();
+        	getNotify().fireInitialSyncNotification(true, RhoRuby.ERR_REMOTESERVER);
+        	return;
+        }*/
+        
+	    String fScriptName = strPath + "_initial.script";
+/*		LOG.INFO("Initial sync: download script from server: " + strScriptUrl);		
+	    NetResponse resp2 = getNet().pullFile(strScriptUrl+strQuery, fDataName, this);
+        if ( !resp2.isOK() )
+        {
+        	LOG.ERROR("Initial sync failed: cannot download database script file.");
+        	stopSync();
+        	getNotify().fireInitialSyncNotification(true, RhoRuby.ERR_REMOTESERVER);
+        	return;
+        }*/
+	    
+		LOG.INFO("Initial sync: change db");
+        
+        //getDB().setInitialSyncDB(fDataName, fScriptName);
+        
+		getDB().executeSQL("UPDATE client_info SET initialsync_state=? where client_id=?", new Integer(1), strClientID );	    	
+        
+        getNotify().fireInitialSyncNotification(true, RhoRuby.ERR_NONE);        
+	}
+	
 	int getStartSource()
 	{
 	    for( int i = 0; i < m_sources.size(); i++ )
@@ -374,7 +495,7 @@ public class SyncEngine implements NetRequest.IRhoSession
 	    }
 	    
 	    if ( !bError)
-	    	getNotify().fireSyncNotification(null, true, RhoRuby.ERR_NONE, "Sync completed.");
+	    	getNotify().fireSyncNotification(null, true, RhoRuby.ERR_NONE, RhoRuby.getMessageText("sync_completed"));
 	}
 	
 	void callLoginCallback(String callback, int nErrCode, String strMessage)
@@ -382,6 +503,8 @@ public class SyncEngine implements NetRequest.IRhoSession
 		try{
 		    String strBody = "error_code=" + nErrCode;
 	        strBody += "&error_message=" + URI.urlEncode(strMessage != null? strMessage : "");
+	        strBody += "&rho_callback=1";
+	        
 	        String strUrl = getNet().resolveUrl(callback);
 	        
 			LOG.INFO( "Login callback: " + callback + ". Body: "+ strBody );
@@ -430,8 +553,7 @@ public class SyncEngine implements NetRequest.IRhoSession
 		    try{
 				
 			    String serverUrl = RhoConf.getInstance().getPath("syncserver");
-			    String strBody = "login=" + name + "&password=" + password + "&remember_me=1&";
-			    strBody += ClientRegister.getInstance().getRegisterBody(this);
+			    String strBody = "login=" + name + "&password=" + password + "&remember_me=1";
 			    
 			    resp = getNet().pullCookies( serverUrl+"client_login", strBody, this);
 			    
@@ -461,6 +583,7 @@ public class SyncEngine implements NetRequest.IRhoSession
 		        return;
 		    }
 		    
+            //TODO: move session to client_info table
 		    getDB().executeSQL( "UPDATE sources SET session=?", strSession );
 		
 		    //if ( ClientRegister.getInstance() != null )
@@ -501,17 +624,21 @@ public class SyncEngine implements NetRequest.IRhoSession
 	{
 	    getDB().executeSQL( "UPDATE sources SET session = NULL");
 	    m_strSession = "";
-	    getNet().deleteCookie("");
 	
 	    loadAllSources();
-	    for( int i = 0; i < m_sources.size(); i++ )
-	    {
-	        SyncSource src = (SyncSource)m_sources.elementAt(i);
-	        getNet().deleteCookie(src.getUrl());
-	    }
-	
 	}
-
+	
+	public void setSyncServer(String url)throws Exception
+	{
+		RhoConf.getInstance().setPropertyByName("syncserver", url);
+		RhoConf.getInstance().saveToFile();
+		RhoConf.getInstance().loadConf();
+		
+		getDB().executeSQL("DELETE FROM client_info");
+		
+		logout();
+	}
+	
 	static String getServerFromUrl( String strUrl )
 	{
 		URI uri = new URI(strUrl);

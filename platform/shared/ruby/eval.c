@@ -29,13 +29,14 @@ VALUE rb_eSysStackError;
 #include "eval_jump.c"
 
 /* initialize ruby */
-
+//RHO
 #if defined(__APPLE__)
-#define environ (*_NSGetEnviron())
+//#define environ (*_NSGetEnviron())
 #elif !defined(_WIN32)
-extern char **environ;
+//extern char **environ;
 #endif
-char **rb_origenviron;
+//char **rb_origenviron;
+//RHO
 
 void rb_clear_trace_func(void);
 void rb_thread_stop_timer_thread(void);
@@ -54,8 +55,9 @@ ruby_init(void)
     if (initialized)
 	return;
     initialized = 1;
-
-    rb_origenviron = environ;
+    //RHO
+    //rb_origenviron = environ;
+    //RHO
 
     Init_stack((void *)&state);
     Init_BareVM();
@@ -136,7 +138,7 @@ ruby_cleanup(int ex)
 
     errs[1] = th->errinfo;
     th->safe_level = 0;
-    Init_stack(&errs[STACK_UPPER(errs, 0, 1)]);
+    Init_stack((void*)&errs[STACK_UPPER(errs, 0, 1)]);
 
     PUSH_TAG();
     if ((state = EXEC_TAG()) == 0) {

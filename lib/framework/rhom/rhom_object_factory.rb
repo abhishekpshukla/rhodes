@@ -45,12 +45,8 @@ module Rhom
               # the rhom object
               attr_accessor :vars
           
-              @@g_base_temp_id = nil
               def generate_id
-                @@g_base_temp_id = ((Time.now.to_f - Time.mktime(2009,"jan",1,0,0,0,0).to_f) * 10**6).to_i unless @@g_base_temp_id
-                
-                @@g_base_temp_id = @@g_base_temp_id + 1
-                @@g_base_temp_id
+                Rho::RhoConfig.generate_id()
               end
               
               def initialize(obj=nil)
@@ -85,6 +81,16 @@ module Rhom
                   res = ::Rhom::RhomDbAdapter.select_from_table('object_values','object', {"source_id"=>get_source_id}, {"distinct"=>true}).length
                   #SyncEngine.unlock_sync_mutex
                   res
+                end
+
+                def backend_refresh_time
+                  result = ::Rhom::RhomDbAdapter::select_from_table('sources', 'backend_refresh_time', {"source_id"=>get_source_id} )
+                  nTime = 0
+                  if result && result.length > 0 && result[0]['backend_refresh_time']
+                    nTime = result[0]['backend_refresh_time'].to_i
+                  end
+                    
+                  Time.at(nTime)
                 end
               
                 def get_source_id
@@ -395,7 +401,7 @@ module Rhom
                   else
                     attribs = SyncEngine.get_src_attrs(nSrcID)
                   end
-                    
+
                   if attribs and attribs.length > 0
                     sql = ""
                     sql << "SELECT * FROM (\n" if condition_hash or condition_str
@@ -403,7 +409,7 @@ module Rhom
                     #attribs.reject! {|attrib| select_arr.index(attrib).nil?} if select_arr
                     attribs.each do |attrib|
                       unless attrib.nil? or attrib.length == 0 or ::Rhom::RhomObject.method_name_reserved?(attrib)
-                        sql << "MAX(CASE WHEN attrib = '#{attrib}' THEN value ELSE NULL END) AS \"#{attrib}\",\n"
+                        sql << "MAX(CASE WHEN attrib = '#{attrib}' THEN value ELSE NULL END) AS \'#{attrib}\',\n"
                       end
                     end 
                     sql.chomp!
@@ -437,7 +443,8 @@ module Rhom
                         
                         puts "Processing rhom objects end, #{ret_list.length} objects"
                     end
-                                        
+                  else
+                      puts "Processing rhom objects end, no attributes found."
                   end
                  
                   if block_given? && order_attr
@@ -464,18 +471,34 @@ module Rhom
               
                 def search(args)
                   searchParams = ""
+                  
+                  searchParams += '&offset=' + Rho::RhoSupport.url_encode(args[:offset]) if args[:offset]
+                  searchParams += '&max_results=' + Rho::RhoSupport.url_encode(args[:max_results]) if args[:max_results]
+
+                  callbackParams = args[:callback_param] ? args[:callback_param] : ""
+                  
                   if args[:search_params]
                     args[:search_params].each do |key,value|
                       searchParams += '&' + "conditions[#{Rho::RhoSupport.url_encode(key)}]" + '=' + Rho::RhoSupport.url_encode(value)
+                      callbackParams += '&' + "search_params[#{Rho::RhoSupport.url_encode(key)}]" + '=' + Rho::RhoSupport.url_encode(value)
                     end  
                   end
                     
-                  searchParams += '&offset=' + Rho::RhoSupport.url_encode(args[:offset]) if args[:offset]
-                  searchParams += '&max_results=' + Rho::RhoSupport.url_encode(args[:max_results]) if args[:max_results]
-                    
-                  set_notification(args[:callback], args[:callback_param]) if args[:callback]
+                  #set_notification(args[:callback], args[:callback_param]) if args[:callback]
                   SyncEngine.dosearch_source(get_source_id.to_i(), args[:from] ? args[:from] : 'search',
-                    searchParams, args[:sync_changes] ? args[:sync_changes] : false, args[:progress_step] ? args[:progress_step] : -1 )
+                    searchParams, args[:sync_changes] ? args[:sync_changes] : false, args[:progress_step] ? args[:progress_step] : -1,
+                    args[:callback], callbackParams )
+                end
+
+                def sync(callback=nil, callback_data="", show_status_popup=nil)
+                  src_id = get_source_id.to_i()
+                  SyncEngine.set_notification(src_id, callback, callback_data) if callback
+                  if !show_status_popup.nil?
+                    SyncEngine.dosync_source(src_id, show_status_popup)
+                  else
+                    SyncEngine.dosync_source(src_id)
+                  end
+                    
                 end
                 
                 # Alias for find
@@ -768,7 +791,9 @@ module Rhom
                 str ? str.gsub(/\{/,"").gsub(/\}/,"") : nil
               end
             end)
-        end
+        end #unless
+        modelname = classname.split(/(?=[A-Z])/).map{|w| w.downcase}.join("_")
+        require "#{classname}/#{modelname}" if File.exists? File.join(Rho::RhoFSConnector.get_base_app_path,'app',classname,"#{modelname}.iseq")
       end
     end
   end # RhomObjectFactory

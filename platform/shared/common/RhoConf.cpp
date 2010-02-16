@@ -31,7 +31,10 @@ void RhoSettings::loadFromFile(){
     }
 }
 
-void RhoSettings::loadFromString(const char* szSettings){
+void RhoSettings::loadFromString(const char* szSettings)
+{
+    m_mapValues.clear();
+
     if ( !szSettings && !*szSettings )
         return;
 
@@ -40,7 +43,7 @@ void RhoSettings::loadFromString(const char* szSettings){
     while(start!=0){
         int len = 0;
 
-        const char* end = end = strchr(start,'\n');
+        const char* end = strchr(start,'\n');
         if (end){
             if ( end > start && *(end-1) == '\r' )
                 len = end-start-1;
@@ -80,7 +83,7 @@ void RhoSettings::loadProperty( const char* start, int len ){
     const char* szValue = start + i+1;
     int nValueLen = len - (i+1);
 
-    while(*szValue==' ' || *szValue=='\'' || *szValue=='"' && nValueLen >= 0 ){ szValue++; nValueLen--;}
+    while((*szValue==' ' || *szValue=='\'' || *szValue=='"') && nValueLen >= 0 ){ szValue++; nValueLen--;}
     while(nValueLen > 0 && (szValue[nValueLen-1]==' ' || szValue[nValueLen-1]=='\'' || szValue[nValueLen-1]=='"')) nValueLen--;
 
     setPropertyByName(start, nNameLen, szValue, nValueLen );
@@ -89,7 +92,7 @@ void RhoSettings::loadProperty( const char* start, int len ){
 void RhoSettings::setPropertyByName(const char* szName, int nNameLen, const char* szValue, int nValueLen ){
     String name(szName,nNameLen);
     String value(szValue,nValueLen);
-	printf("name: %s, value: %s\n", name.c_str(), value.c_str());
+	//printf("name: %s, value: %s\n", name.c_str(), value.c_str());
     m_mapValues[name] = value;
 }
 
@@ -160,6 +163,7 @@ void rho_conf_Init(const char* szRootPath){
 	rho::common::CFilePath oRhoPath( szRootPath );
 
     RHOCONF().setConfFilePath(oRhoPath.makeFullPath(CONF_FILENAME).c_str());
+    RHOCONF().loadFromFile();
 }
 
 bool rho_conf_getBool(const char* szName) {

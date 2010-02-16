@@ -10,10 +10,12 @@
 #import "defs.h"
 #import "RhoRunnerAppDelegate.h"
 #import "WebViewController.h"
-#import "AppManager.h"
-#import "common/RhoConf.h"
+//#import "AppManager.h"
+//#import "common/RhoConf.h"
 #import "logging/RhoLog.h"
 #include "sync/ClientRegister.h"
+#include "sync/syncthread.h"
+#include "common/RhodesApp.h"
 #import "ParamsWrapper.h"
 #import "DateTime.h"
 #import "NativeBar.h"
@@ -33,28 +35,35 @@
 @synthesize webViewController;
 @synthesize player; 
 @synthesize nativeBar;
-
-- (NSString*)normalizeUrl:(NSString*)url {
-	if([url hasPrefix:@"http://"]) {
-		return url;
-	}
-	NSString* location = [@"http://localhost:8080" stringByAppendingString:[@"/" stringByAppendingPathComponent:url]];
-	return location;
-}
+/*
+- (NSString*)normalizeUrl:(NSString*)url 
+{
+//	if([url hasPrefix:@"http://"]) {
+//		return url;
+//	}
+//	NSString* location = [@"http://localhost:8080" stringByAppendingString:[@"/" stringByAppendingPathComponent:url]];
+//	return location;
+	char* szNormUrl = rho_http_normalizeurl([url cStringUsingEncoding:[NSString defaultCStringEncoding]]);
+	NSString* strRes = [NSString stringWithCString:szNormUrl encoding:[NSString defaultCStringEncoding]];
+	rho_http_free(szNormUrl);
+	
+	return strRes;
+}*/
 
 - (void)loadStartPath:(NSString*)location {
 	if (nativeBar.barType == TOOLBAR_TYPE || nativeBar.barType == NOBAR_TYPE) {
 		[webViewController navigateRedirect:location];
 	} else {
 		// Load tab #0 on app load
-		[tabBarDelegate loadTabBarItemFirstPage:(BarItem*)[tabBarDelegate.barItems objectAtIndex:0]];
+        BarItem *item = (BarItem*)[tabBarDelegate.barItems objectAtIndex:0];
+		[tabBarDelegate loadTabBarItemFirstPage:item];
 	}	
 }
 
 - (void)onServerStarted:(NSString*)data {
 	RAWLOG_INFO("Server Started notification is recived");
-	NSString* location = NULL;
-	
+	NSString* location = [NSString stringWithCString:rho_rhodesapp_getfirststarturl() encoding:[NSString defaultCStringEncoding]];
+	/*
 	//try to restore previous location
 	if ( rho_conf_getBool("KeepTrackOfLastVisitedPage") ) {
 		char* lastVisitedPage = rho_conf_getString("LastVisitedPage");
@@ -68,33 +77,49 @@
 	//if there is no previous location navigate to the default start page 
 	if (!location) {
 		location = [self normalizeUrl:(NSString*)data];
-	}
+	}*/
 	
 	appStarted = true;
 	[self loadStartPath:location];
 }
 
-- (void)onRefreshView {
-	[webViewController refresh];
+- (void)onRefreshView:(int)index {
+    if (self.nativeBar.barType == TABBAR_TYPE) {
+        BarItem *item = (BarItem*)[tabBarDelegate.barItems objectAtIndex:index];
+        [tabBarDelegate refresh:item];
+    }
+    else {
+        [webViewController refresh];
+    }
 }
 
 - (void)onNavigateTo:(WebViewUrl*) wvUrl {
 	if (self.nativeBar.barType == TABBAR_TYPE) {
+        int size = [tabBarDelegate.barItems count];
+        if (wvUrl.webViewIndex >= size) {
+            RAWLOG_ERROR2("Web view index out of bound: %d (%d tabs)", wvUrl.webViewIndex, size);
+            return;
+        }
 		BarItem* bItem = (BarItem*)[tabBarDelegate.barItems objectAtIndex:wvUrl.webViewIndex];
-		WebViewController* wvController = (WebViewController*)[bItem viewController];
-		[wvController navigateRedirect:wvUrl.url];
+        [tabBarDelegate loadTabBarItemLocation:bItem url:wvUrl.url];
 	} else {
 		[webViewController navigateRedirect:wvUrl.url];
 	}
 }
 
 - (void)onExecuteJs:(JSString *)js {
-	[webViewController executeJs:js];
+    if (self.nativeBar.barType == TABBAR_TYPE) {
+        BarItem *item = (BarItem *)[tabBarDelegate.barItems objectAtIndex:js->index];
+        [tabBarDelegate executeJs:item js:js];
+    }
+    else {
+        [webViewController executeJs:js];
+    }
 }
-
+/*
 - (void)onSetViewHomeUrl:(NSString *)url {
 	[webViewController setViewHomeUrl:url];
-}
+}*/
 
 #ifdef __IPHONE_3_0
 -(void) onCreateMap:(NSMutableArray*)items {
@@ -163,14 +188,14 @@
 } 
 
 - (void)onTakePicture:(NSString*) url {
-	[pickImageDelegate setPostUrl:[self normalizeUrl:url]];
+	[pickImageDelegate setPostUrl:url];//[self normalizeUrl:url]];
 	[self startCameraPickerFromViewController:webViewController 
 								usingDelegate:pickImageDelegate 
 								sourceType:UIImagePickerControllerSourceTypeCamera];
 }
 
 - (void)onChoosePicture:(NSString*) url {
-	[pickImageDelegate setPostUrl:[self normalizeUrl:url]];
+	[pickImageDelegate setPostUrl:url];//[self normalizeUrl:url]];
 	[self startCameraPickerFromViewController:webViewController 
 								usingDelegate:pickImageDelegate 
 								sourceType:UIImagePickerControllerSourceTypePhotoLibrary];
@@ -178,34 +203,60 @@
 
 - (void)onChooseDateTime:(DateTime*)dateTime {
 	dateTimePickerDelegate.dateTime = dateTime;
-	[dateTimePickerDelegate setPostUrl:[self normalizeUrl:dateTime.url]];
+	[dateTimePickerDelegate setPostUrl:dateTime.url];//[self normalizeUrl:dateTime.url]];
 	[self startDateTimePickerFromViewController:webViewController
 								  usingDelegate:dateTimePickerDelegate];
 }
 
-- (void)onCreateNativeBar:(NativeBar*)bar {
-	// retain the nativebar so it doesn't get deleted
-	[bar retain];
-	self.nativeBar = bar;
-	if (self.nativeBar.barType == TABBAR_TYPE) {
-		tabBarDelegate.tabBar = self.nativeBar;
-		[self startNativeBarFromViewController:webViewController usingDelegate:tabBarDelegate];
-	} else if(self.nativeBar.barType == TOOLBAR_TYPE) {
-		webViewController.toolbar.hidden = NO;
-		[window sendSubviewToBack:webViewController.webView];
-		[window bringSubviewToFront:webViewController.toolbar];
-		[webViewController.webView sizeToFit];
-	} else if(self.nativeBar.barType == NOBAR_TYPE) {
-		webViewController.toolbar.hidden = YES;
-		[window sendSubviewToBack:webViewController.toolbar];
-		[window bringSubviewToFront:webViewController.webView];
-		[webViewController.webView sizeToFit];
-	}
+- (void)onRemoveNativeBar {
+    if (self.nativeBar == nil)
+        return;
+    
+    if (self.nativeBar.barType == TABBAR_TYPE) {
+        [tabBarDelegate deleteTabBar];
+    }
+    else {
+        [webViewController showToolbar:NO];
+    }
+    self.nativeBar = nil;
 }
 
+- (void)onCreateNativeBar:(NativeBar*)bar {
+    if (self.nativeBar != nil) {
+        RAWLOG_INFO("Native bar already exists, remove it");
+        [self onRemoveNativeBar];
+    }
+	
+    // retain the nativebar so it doesn't get deleted
+	[bar retain];
+    int type = bar.barType;
+    if (type == TABBAR_TYPE) {
+        tabBarDelegate.tabBar = bar;
+        [self startNativeBarFromViewController:webViewController usingDelegate:tabBarDelegate];
+	}
+    else if (type == TOOLBAR_TYPE) {
+        [webViewController showToolbar:YES];
+	}
+    else if (type == NOBAR_TYPE) {
+        [webViewController showToolbar:NO];
+	}
+    self.nativeBar = bar;
+}
+
+- (void)onSwitchTab:(NSValue*)value {
+    int* pIndex = value.pointerValue;
+    if (self.nativeBar == nil)
+        return;
+    
+    if (self.nativeBar.barType == TABBAR_TYPE) {
+        [tabBarDelegate switchTab:*pIndex];
+    }
+}
+
+/*
 - (void)onSetViewOptionsUrl:(NSString *)url {
 	[webViewController setViewOptionsUrl:url];
-}
+}*/
 
 - (void)onShowLog {
 	if (logViewController!=NULL) {
@@ -310,13 +361,13 @@
 				sync_all = true;
 			} else {
 				//do sync of individual source
-				[serverHost  doSyncFor:[url stringByTrimmingCharactersInSet:
-										[NSCharacterSet characterSetWithCharactersInString:@" \t\r\n"]]];
+				NSString* srcUrl = [url stringByTrimmingCharactersInSet: [NSCharacterSet characterSetWithCharactersInString:@" \t\r\n"]];
+				rho_sync_doSyncSourceByUrl([srcUrl cStringUsingEncoding:[NSString defaultCStringEncoding]]);
 			}
 		}
 		
 		if (sync_all) {
-			[serverHost doSync];
+			rho_sync_doSyncAllSources(TRUE);
 		}
 	}
 }
@@ -345,8 +396,10 @@
 }
 #endif
 
-- (void) showLoadingPage {
+- (void) showLoadingPage 
+{
 	NSString *filePath = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:@"apps/app/loading.html"];
+//	NSString *filePath = [NSString stringWithCString:rho_rhodesapp_getloadingpagepath() encoding:[NSString defaultCStringEncoding]];
 	NSFileManager *fileManager = [NSFileManager defaultManager];
 	if ([fileManager fileExistsAtPath:filePath]) {
 		NSData *data = [fileManager contentsAtPath:filePath];
@@ -364,12 +417,13 @@
 	
 	logOptionsController = [[LogOptionsController alloc] init];
 	
+    webViewController->window = window;
 	webViewController->actionTarget = self;
 	webViewController->onShowLog = @selector(onShowLog);
 	
 	//TabBar delegate
 	tabBarDelegate = [[TabBarDelegate alloc] init];
-
+	
 	[self showLoadingPage];
 	
 	//Camera delegate
@@ -386,12 +440,14 @@
 	serverHost->onRefreshView = @selector(onRefreshView);
 	serverHost->onNavigateTo = @selector(onNavigateTo:);
 	serverHost->onExecuteJs = @selector(onExecuteJs:);
-	serverHost->onSetViewHomeUrl = @selector(onSetViewHomeUrl:);
+	//serverHost->onSetViewHomeUrl = @selector(onSetViewHomeUrl:);
 	serverHost->onTakePicture = @selector(onTakePicture:);
 	serverHost->onChoosePicture = @selector(onChoosePicture:);
 	serverHost->onChooseDateTime = @selector(onChooseDateTime:);
 	serverHost->onCreateNativeBar = @selector(onCreateNativeBar:);
-	serverHost->onSetViewOptionsUrl = @selector(onSetViewOptionsUrl:);
+    serverHost->onRemoveNativeBar = @selector(onRemoveNativeBar);
+    serverHost->onSwitchTab = @selector(onSwitchTab:);
+	//serverHost->onSetViewOptionsUrl = @selector(onSetViewOptionsUrl:);
 	serverHost->onShowPopup = @selector(onShowPopup:);
 	serverHost->onVibrate = @selector(onVibrate:);
 	serverHost->onPlayFile = @selector(onPlayFile:);
@@ -454,22 +510,24 @@
 
 - (void)applicationDidBecomeActive:(UIApplication *)application {
 	if (appStarted) {
-		RhoDelegate* callback = [[RhoDelegate alloc] init];
+	    rho_rhodesapp_callAppActiveCallback();
+/*		RhoDelegate* callback = [[RhoDelegate alloc] init];
 		char* callbackUrl = rho_conf_getString("app_did_become_active_callback");
 		if (callbackUrl && strlen(callbackUrl) > 0) {
 			callback.postUrl = [self normalizeUrl:[NSString stringWithCString:callbackUrl
 								  encoding:[NSString defaultCStringEncoding]]];
 			[callback doCallback:@""];
 		}
-		[callback release];
+		[callback release];*/
 	}
 }
 
 
-- (void) saveLastUsedTime {
-	int now = [[NSDate date] timeIntervalSince1970];
+- (void) saveLastUsedTime 
+{
+/*	int now = [[NSDate date] timeIntervalSince1970];
 	rho_conf_setInt("last_time_used",now);
-	rho_conf_save();
+	rho_conf_save();*/
 }
 
 - (void)applicationWillResignActive:(UIApplication *)application {

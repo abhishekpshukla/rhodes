@@ -24,6 +24,8 @@ public class RhoRuby {
 	public static final RubyID serveIndexID = RubyID.intern("serve_index_hash");
 	public static final RubyID raiseRhoError = RubyID.intern("raise_rhoerror");
 	public static final RubyID initApp = RubyID.intern("init_app");
+	public static final RubyID activateApp = RubyID.intern("activate_app");
+	
 //	public static final RubyID getStartPath = RubyID.intern("get_start_path");
 //	public static final RubyID getOptionsPath = RubyID.intern("get_options_path");
 	
@@ -31,7 +33,10 @@ public class RhoRuby {
 	static RubyProgram mainObj;
 	static RubyClass m_classRhoError;
 	static RubyMethod m_RhoError_err_message;
-	
+
+	static RubyClass m_classRhoMessages;
+	static RubyMethod m_RhoMessages_get_message;
+		
 	public static final int ERR_NONE = 0;
 	public static final int ERR_NETWORK = 1;
 	public static final int ERR_REMOTESERVER = 2;
@@ -77,6 +82,20 @@ public class RhoRuby {
 		
 		return res.toStr();
 	}
+
+	public static String getMessageText(String strName)
+	{
+		if ( m_classRhoMessages == null )
+		{
+			RubyModule modRho = (RubyModule)RubyRuntime.ObjectClass.getConstant("Rho");
+			m_classRhoMessages = (RubyClass)modRho.getConstant("RhoMessages");
+			m_RhoMessages_get_message = m_classRhoMessages.findMethod( RubyID.intern("get_message") );
+		}
+		
+		RubyValue res = m_RhoMessages_get_message.invoke( m_classRhoMessages, ObjectFactory.createString(strName), null );
+		
+		return res.toStr();
+	}
 	
 	public static void RhoRubyStart(String szAppPath){
 		String[] args = new String[0];
@@ -98,7 +117,7 @@ public class RhoRuby {
     		RhoClassFactory.createFile().getDirPath("apps/public");
     		RhoClassFactory.createFile().getDirPath("apps/public/db-files");
 	        
-        }catch(Throwable exc){
+        }catch(Exception exc){
         	LOG.ERROR("Cannot init ruby", exc);
         }
         
@@ -116,13 +135,21 @@ public class RhoRuby {
         	
         /*}catch(ClassNotFoundException exc){
         	LOG.ERROR("Cannot create ServeME object", exc);*/
-        }catch(Throwable exc){
+        }catch(Exception exc){
         	LOG.ERROR("Cannot create ServeME object", exc);
         }
 	}
 	
 	public static void RhoRubyInitApp(){
 		RubyAPI.callPublicNoArgMethod(receiver, null, initApp);
+	}
+
+	public static void rho_ruby_activateApp(){
+		RubyAPI.callPublicNoArgMethod(receiver, null, activateApp);
+	}
+
+	public static boolean rho_ruby_isValid(){
+		return receiver!= null;
 	}
 	
 	public static void RhoRubyStop(){

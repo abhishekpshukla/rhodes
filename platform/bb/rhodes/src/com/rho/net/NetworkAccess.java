@@ -4,22 +4,17 @@ import java.io.IOException;
 
 import javax.microedition.io.Connector;
 import javax.microedition.io.HttpConnection;
+import javax.microedition.io.Connection;
+import javax.microedition.io.SocketConnection;
 
-import rhomobile.RhodesApplication;
-import rhomobile.Utilities;
-
-import net.rim.device.api.servicebook.ServiceBook;
-import net.rim.device.api.servicebook.ServiceRecord;
 import net.rim.device.api.system.DeviceInfo;
 import net.rim.device.api.system.RadioInfo;
-
 import com.rho.BBVersionSpecific;
 import com.rho.RhoEmptyLogger;
 import com.rho.RhoLogger;
 import com.rho.net.bb.BBHttpConnection;
-import com.rho.net.bb.NativeBBHttpConnection;
-
-import net.rim.device.api.io.http.HttpHeaders;
+import net.rim.device.api.servicebook.ServiceRecord;
+import net.rim.device.api.servicebook.ServiceBook;
 
 public class NetworkAccess implements INetworkAccess {
 
@@ -60,7 +55,7 @@ public class NetworkAccess implements INetworkAccess {
 						//";deviceside=true;ConnectionUID=" + 
 						//wifis[i].getUid();
 					
-					LOG.INFO("WIFI :" + WIFIsuffix );
+					LOG.TRACE("WIFI :" + WIFIsuffix );
 					
 					break;
 				}
@@ -135,10 +130,8 @@ public class NetworkAccess implements INetworkAccess {
 		return BBVersionSpecific.isWifiActive();
 	}
 	
-	public IHttpConnection connect(String url) throws IOException 
+	public IHttpConnection connect(String url, boolean ignoreSuffixOnSim) throws IOException 
 	{
-		HttpConnection http = null;
-
 		if ( URI.isLocalHost(url) )
 		{
 			URI uri = new URI(url);
@@ -150,45 +143,72 @@ public class NetworkAccess implements INetworkAccess {
 			url = url.substring(0, fragment);
 		}
 
+		boolean ignoreSuffix = ignoreSuffixOnSim && DeviceInfo.isSimulator();
+		HttpConnection http = (HttpConnection)baseConnect(url, ignoreSuffix );
+		return new BBHttpConnection(http);
+	}
+
+	public SocketConnection socketConnect(String strHost, int nPort) throws IOException
+	{
+		return socketConnect("socket", strHost, nPort);
+	}
+
+	public SocketConnection socketConnect(String proto, String strHost, int nPort) throws IOException 
+	{
+		boolean ignoreSuffix = DeviceInfo.isSimulator();// && proto.equals("ssl") &&
+			//URLsuffix.indexOf("deviceside=true") != -1;
+		String strUrl = proto + "://" + strHost + ":" + Integer.toString(nPort);
+		
+		return (SocketConnection)baseConnect(strUrl, ignoreSuffix);
+	}
+	
+	public Connection baseConnect(String strUrl, boolean ignoreSuffix) throws IOException 
+	{
+		Connection conn = null;
+		
 		//Try wifi first
 		if ( WIFIsuffix != null && isWifiActive() ){
 			try {
-				LOG.INFO(url + WIFIsuffix);
-				http = (HttpConnection) Connector.open(url + WIFIsuffix);
+				LOG.INFO(strUrl + WIFIsuffix);
+				conn = Connector.open(strUrl + WIFIsuffix);
 			} catch (IOException ioe) {
 				LOG.INFO("WIFI connection failed: " + ioe.getMessage() );
 			}
 		}
 		
-		if ( http == null ){
+		if ( conn == null ){
 			/*int nStatus = net.rim.device.api.system.RadioInfo.getNetworkService();
 			if ( ( nStatus & net.rim.device.api.system.RadioInfo.NETWORK_SERVICE_DATA) == 0) {
 				throw new IOException("Network Data Service Not Available");
 			}*/
 			
 			try {
-				LOG.INFO(url + URLsuffix);
-				http = (HttpConnection) Connector.open(url + URLsuffix);
+				String url = strUrl;
+				if (!ignoreSuffix)
+					url += URLsuffix;
+				LOG.INFO(url);
+				conn = Connector.open(url);
 			} catch (IOException ioe) {
-				
 				if ( URLsuffix.length() > 0 )
 				{
+					LOG.ERROR("Connector.open exception", ioe );
+					
 					try{
-						LOG.INFO(url);
-						http = (HttpConnection) Connector.open(url);
+						LOG.INFO(strUrl);
+						conn = Connector.open(strUrl);
 					} catch (IOException ioe2) {
 						LOG.ERROR("Connector.open exception", ioe2 );
-						if (http != null)
-							http.close();
-						http = null;
+						if (conn != null)
+							conn.close();
+						conn = null;
 						throw ioe2;
 					}
 				}else
 				{				
 					LOG.ERROR("Connector.open exception", ioe );
-					if (http != null)
-						http.close();
-					http = null;
+					if (conn != null)
+						conn.close();
+					conn = null;
 					throw ioe;
 				}
 			}catch(Exception exc)
@@ -197,9 +217,9 @@ public class NetworkAccess implements INetworkAccess {
 			}
 		}
 		
-		return new BBHttpConnection(http);
+		return conn;
 	}
-
+	
 	public void close() {
 	}
 

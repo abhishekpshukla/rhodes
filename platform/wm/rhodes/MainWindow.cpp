@@ -12,7 +12,8 @@
 #endif
 #include "resource.h"
 #include "MainWindow.h"
-#include "HttpServer.h"
+#include "common/RhodesApp.h"
+#include "common/StringConverter.h"
 #include "AppManager.h"
 #include "ext/rho/rhoruby.h"
 #if defined(_WIN32_WCE)
@@ -22,13 +23,13 @@
 #include "sync/SyncThread.h"
 
 IMPLEMENT_LOGCLASS(CMainWindow,"MainWindow");
-char* canonicalizeURL(const char* path);
-const char* strip_local_domain(const char* url);
+//char* canonicalizeURL(const char* path);
+//const char* strip_local_domain(const char* url);
 
-extern "C" wchar_t* wce_mbtowc(const char* a);
-extern "C" char* wce_wctomb(const wchar_t* w);
+//extern "C" wchar_t* wce_mbtowc(const char* a);
+//extern "C" char* wce_wctomb(const wchar_t* w);
 
-extern "C" void pause_sync( int nPause );
+//extern "C" void pause_sync( int nPause );
 
 #if defined(_WIN32_WCE)
 #include <regext.h>
@@ -39,6 +40,12 @@ extern HREGNOTIFY g_hNotify;
 #endif
 
 extern "C" int g_rho_net_has_network;
+using namespace rho::common;
+
+#if !defined(_WIN32_WCE)
+int CMainWindow::m_screenWidth;
+int CMainWindow::m_screenHeight;
+#endif
 
 CMainWindow::CMainWindow()
 {
@@ -48,17 +55,17 @@ CMainWindow::CMainWindow()
     memset(&m_sai, 0, sizeof(m_sai));
     m_sai.cbSize = sizeof(m_sai);
 #endif
-	m_current_url = NULL;
-    m_szStartPage = NULL;
+//	m_current_url = NULL;
+//    m_szStartPage = NULL;
 }
 
 CMainWindow::~CMainWindow()
 {
-    if ( m_current_url )
-	    free(m_current_url);
+//    if ( m_current_url )
+//	    free(m_current_url);
 
-    if ( m_szStartPage )
-        free(m_szStartPage);
+//    if ( m_szStartPage )
+//        free(m_szStartPage);
 }
 
 void CMainWindow::Navigate2(BSTR URL) {
@@ -137,6 +144,10 @@ LRESULT CMainWindow::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*
     //m_spIWebBrowser2->put_AddressBar(VARIANT_TRUE);
     m_spIWebBrowser2->put_AddressBar(VARIANT_FALSE);
 
+    if ( !RHOCONF().getBool("wm_show_statusbar") )
+        m_spIWebBrowser2->put_StatusBar(VARIANT_FALSE);
+
+    //m_spIWebBrowser2->put_Offline(VARIANT_TRUE);
 #if defined(_WIN32_WCE)
     // Create a menubar
     // (mbi was initialized above)
@@ -165,6 +176,11 @@ LRESULT CMainWindow::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*
     {
         rcMainWindow.bottom = si.rcVisibleDesktop.bottom;
     }
+#endif
+
+#if !defined(_WIN32_WCE)
+	m_screenWidth = rcMainWindow.right - rcMainWindow.left;
+	m_screenHeight = rcMainWindow.bottom - rcMainWindow.top;
 #endif
 
     MoveWindow(&rcMainWindow);
@@ -264,7 +280,12 @@ LRESULT CMainWindow::OnExitCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hW
 
 LRESULT CMainWindow::OnBackCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 {
-    if ( m_szStartPage && m_current_url && _stricmp(m_current_url,m_szStartPage) != 0 )
+//    if ( m_szStartPage && m_current_url && _stricmp(m_current_url,m_szStartPage) != 0 )
+    rho::String strAppUrl = RHODESAPP().getAppBackUrl();
+
+    if ( strAppUrl.length() > 0 )
+    	m_spIWebBrowser2->Navigate( const_cast<wchar_t*>(convertToStringW(strAppUrl).c_str()), NULL, NULL, NULL, NULL);
+    else if ( _stricmp(RHODESAPP().getCurrentUrl().c_str(),RHODESAPP().getStartUrl().c_str()) != 0 )
         m_spIWebBrowser2->GoBack();
 
     return 0;
@@ -296,11 +317,13 @@ void CMainWindow::SetRhobundleReloadMenu() {
 
 LRESULT CMainWindow::OnHomeCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 {
+    //TODO: show menu on navigate to start page
 	SetRhobundleReloadMenu();
-	m_spIWebBrowser2->Navigate(CHttpServer::Instance()->GetStartPage(), NULL, NULL, NULL, NULL);
+	m_spIWebBrowser2->Navigate( 
+        const_cast<wchar_t*>(convertToStringW(RHODESAPP().getStartUrl()).c_str()), NULL, NULL, NULL, NULL);
 	return 0;
 }
-
+#if 0
 LRESULT CMainWindow::OnLoadStartPageCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 {
 	SetRhobundleReloadMenu();
@@ -328,6 +351,7 @@ LRESULT CMainWindow::OnLoadStartPageCommand(WORD /*wNotifyCode*/, WORD /*wID*/, 
 	
 	return 0;
 }
+#endif //0
 
 LRESULT CMainWindow::OnOpenURLCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 {
@@ -360,9 +384,13 @@ LRESULT CMainWindow::OnRefreshCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /
 {
 //    m_spIWebBrowser2->Refresh();
 
-	LPTSTR wcurl = wce_mbtowc(GetCurrentLocation());
-	Navigate2(wcurl);
-	free(wcurl);
+//	LPTSTR wcurl = wce_mbtowc(GetCurrentLocation());
+
+    rho::StringW strCurrentUrlW;
+    rho::common::convertToStringW(RHODESAPP().getCurrentUrl().c_str(), strCurrentUrlW);
+    Navigate2(const_cast<wchar_t*>(strCurrentUrlW.c_str()));
+
+//	free(wcurl);
     return 0;
 }
 
@@ -390,15 +418,15 @@ LRESULT CMainWindow::OnSyncCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hW
 }
 
 LRESULT CMainWindow::OnOptionsCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/) {
-	m_spIWebBrowser2->Navigate(CHttpServer::Instance()->GetOptionsPage(), NULL, NULL, NULL, NULL);
+	m_spIWebBrowser2->Navigate(const_cast<wchar_t*>(convertToStringW(RHODESAPP().getOptionsUrl()).c_str()), NULL, NULL, NULL, NULL);
 	return 0;
 }
 
 LRESULT CMainWindow::OnReloadRhobundleCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 {
 #ifdef ENABLE_DYNAMIC_RHOBUNDLE
-	if ( CHttpServer::Instance()->GetRhobundleReloadUrl() ) {
-		CAppManager::ReloadRhoBundle(m_hWnd,CHttpServer::Instance()->GetRhobundleReloadUrl(), NULL);
+	if ( RHODESAPP().getRhobundleReloadUrl().length()>0 ) {
+		CAppManager::ReloadRhoBundle(m_hWnd,RHODESAPP().getRhobundleReloadUrl().c_str(), NULL);
 	} else {
 		MessageBox(_T("Path to the bundle is not defined."),_T("Information"), MB_OK | MB_ICONINFORMATION );
 	}
@@ -434,17 +462,17 @@ LRESULT CMainWindow::OnPosChanged(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lPara
 	return 0;
 }
 #endif
-
+/*
 void CMainWindow::SendCameraCallbackRequest(HRESULT status, LPTSTR image_name, char* callback_url) {
 
-	char* callback = canonicalizeURL(callback_url);
+    rho::String callback = RHODESAPP().canonicalizeRhoUrl(callback_url);
 
 	char* imageuri = NULL, *message;
 	if (status==S_OK) {
 		imageuri = wce_wctomb(image_name);
 		int len = 256+strlen(imageuri);
 		message = (char*) malloc(len);
-		sprintf(message,"status=ok&image_uri=%%2Fpublic%%2Fdb-files%%2F%s",imageuri);
+		sprintf(message,"status=ok&image_uri=%s",imageuri);
 	} else {
 		char* status_message = (status==S_FALSE?"User canceled operation":"Error");
 		int len = 256+strlen(status_message);
@@ -457,20 +485,21 @@ void CMainWindow::SendCameraCallbackRequest(HRESULT status, LPTSTR image_name, c
 	//char* res = m_callbackRequest.doRequest(L"POST",callback,headers,strlen(headers),message,strlen(message));
 	//if ( res ) free(res);
     rho::net::CNetRequest oNetReq;
-    oNetReq.pushData( callback, message );
+    oNetReq.pushData( callback, message, null );
 
 	free(message);
-	if (imageuri) free(imageuri);
-	free(callback);
-
-}
+	if (imageuri) 
+        free(imageuri);
+}*/
 
 LRESULT CMainWindow::OnTakePicture(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) {
 #if defined (_WIN32_WCE)
 	Camera camera;
 	TCHAR image_uri[MAX_PATH];
 	HRESULT status = camera.takePicture(this->m_hWnd,image_uri);
-	SendCameraCallbackRequest(status, image_uri, (char*)lParam);
+
+    RHODESAPP().callCameraCallback( (const char*)lParam, rho::common::convertToStringA(image_uri),
+        (status!= S_OK && status != S_FALSE ? "Error" : ""), status == S_FALSE);
 #endif
 	return 0;
 }
@@ -484,13 +513,20 @@ LRESULT CMainWindow::OnConnectionsNetworkCount(UINT /*uMsg*/, WPARAM wParam, LPA
 	return 0;
 }
 
-LRESULT CMainWindow::OnSelectPicture(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) {
+LRESULT CMainWindow::OnSelectPicture(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) 
+{
+	TCHAR image_uri[MAX_PATH];
+    HRESULT status = S_OK;
 #if defined (_WIN32_WCE)
 	Camera camera;
-	TCHAR image_uri[MAX_PATH];
-	HRESULT status = camera.selectPicture(this->m_hWnd,image_uri);
-	SendCameraCallbackRequest(status, image_uri, (char*)lParam);
+	status = camera.selectPicture(this->m_hWnd,image_uri);
+#else
+    wsprintf( image_uri, L"%s", L"dashboard.PNG");
 #endif
+
+    RHODESAPP().callCameraCallback( (const char*)lParam, rho::common::convertToStringA(image_uri),
+        (status!= S_OK && status != S_FALSE ? "Error" : ""), status == S_FALSE);
+
 	return 0;
 }
 
@@ -533,9 +569,8 @@ void __stdcall CMainWindow::OnNavigateComplete2(IDispatch* pDisp, VARIANT * pvtU
 std::wstring& loadLoadingHtml(std::wstring& str) {
 	FILE *file;
 	wchar_t	buf[1024];
-	std::string fname = RhoGetRootPath();
 
-	fname.append("apps\\loading.html");
+    rho::String fname = RHODESAPP().getLoadingPagePath(); 
 	file = fopen(fname.c_str(), "r");
 
 	if(file==NULL) {
@@ -601,7 +636,7 @@ void __stdcall CMainWindow::OnDocumentComplete(IDispatch* pDisp, VARIANT * pvtUR
 {
     USES_CONVERSION;
 	
-	BOOL store_current_url = RHOCONF().getBool("KeepTrackOfLastVisitedPage") && !m_bLoading;
+	//BOOL store_current_url = !m_bLoading;
 	LPCTSTR url = OLE2CT(V_BSTR(pvtURL));
 	if (m_bLoading && wcscmp(url,_T("about:blank"))==0) {
 		LOG(TRACE) + "Show loading page";
@@ -609,22 +644,20 @@ void __stdcall CMainWindow::OnDocumentComplete(IDispatch* pDisp, VARIANT * pvtUR
 		ShowLoadingPage(pDisp, pvtURL);
 #endif //_WIN32_WCE
 		m_bLoading = false; //show loading page only once
-    }else{
-        if ( m_current_url && strcmp(m_current_url,"about:blank") ==0 )
-            m_szStartPage = wce_wctomb(url);
+    }else
+    {
+//        if ( m_current_url && strcmp(m_current_url,"about:blank") ==0 )
+//            m_szStartPage = wce_wctomb(url);
     }
 
-	if (m_current_url) {
+	/*if (m_current_url) {
 		free(m_current_url);
 	}
 
-	m_current_url = wce_wctomb(url);
+	m_current_url = wce_wctomb(url);*/
 	
-	if( store_current_url ) {
-		const char* _page = strip_local_domain(m_current_url);
-		RHOCONF().setString("LastVisitedPage",_page);		
-		RHOCONF().saveToFile();
-	}
+	//if( store_current_url ) 
+    //    RHODESAPP().keepLastVisitedUrlW(url);
 
     LOG(TRACE) + "OnDocumentComplete: " + url;
 
@@ -720,36 +753,3 @@ BOOL CMainWindow::TranslateAccelerator(MSG* pMsg)
     // ::TranslateAccelerator() function here, instead of simply returning FALSE.
     return FALSE;
 }
-
-#if defined(OS_WINDOWS)
-/* char -> wchar_t */
-wchar_t* wce_mbtowc(const char* a)
-{
-	int length;
-	wchar_t *wbuf;
-
-	length = MultiByteToWideChar(CP_ACP, 0, 
-		a, -1, NULL, 0);
-	wbuf = (wchar_t*)malloc( (length+1)*sizeof(wchar_t) );
-	MultiByteToWideChar(CP_ACP, 0,
-		a, -1, wbuf, length);
-
-	return wbuf;
-}
-
-/* wchar_t -> char */
-char* wce_wctomb(const wchar_t* w)
-{
-	DWORD charlength;
-	char* pChar;
-
-	charlength = WideCharToMultiByte(CP_ACP, 0, w,
-					-1, NULL, 0, NULL, NULL);
-	pChar = (char*)malloc(charlength+1);
-	WideCharToMultiByte(CP_ACP, 0, w,
-		-1, pChar, charlength, NULL, NULL);
-
-	return pChar;
-}
-
-#endif //OS_WINDOWS

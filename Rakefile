@@ -1,5 +1,14 @@
 require 'find'
 require 'erb'
+require 'rake/rdoctask'
+
+#Look, another big fat hack. Make it so we can remove tasks from rake -T by setting comment to nil
+module Rake
+  class Task
+    attr_accessor :comment
+  end
+end
+
 
 chdir File.dirname(__FILE__)
 
@@ -11,9 +20,30 @@ load 'platform/iphone/rbuild/iphone.rake'
 load 'platform/wm/build/wm.rake'
 load 'platform/linux/tasks/linux.rake'
 
+
+namespace "framework" do
+  task :spec do
+    loadpath = $LOAD_PATH.inject("") { |load_path,pe| load_path += " -I" + pe }
+
+    rhoruby = ""
+
+    if RUBY_PLATFORM =~ /(win|w)32$/
+      rhoruby = 'res\\build-tools\\RhoRuby'
+    elsif RUBY_PLATFORM =~ /darwin/
+      rhoruby = 'res/build-tools/RubyMac'
+    else
+      rhoruby = 'res/build-tools/rubylinux'
+    end
+   
+    puts `#{rhoruby}  -I#{File.expand_path('spec/framework_spec/app/')} -I#{File.expand_path('lib/framework')} -I#{File.expand_path('lib/test')} -Clib/test framework_test.rb`
+  end
+end
+
+
 namespace "config" do
   task :common do
     $startdir = File.dirname(__FILE__)
+    $binextensions = []
     buildyml = 'rhobuild.yml'
 
     buildyml = ENV["RHOBUILD"] unless ENV["RHOBUILD"].nil?
@@ -27,11 +57,18 @@ namespace "config" do
       #load the apps path and config
 
       $app_path = $config["env"]["app"]
+      unless File.exists? $app_path
+        puts "Could not find rhodes application. Please verify your application setting in #{File.dirname(__FILE__)}/rhobuild.yml"
+        exit 1
+      end
       $app_config = YAML::load_file($app_path + "/build.yml")
 
     end
     Jake.set_bbver($app_config["bbver"].to_s)
   end
+
+  out = `javac -version 2>&1`
+  puts "\n\nYour java bin folder does not appear to be on your path.\nThis is required to use rhodes.\n\n" unless $? == 0
 end
 
 def copy_assets(asset)
@@ -42,7 +79,162 @@ def copy_assets(asset)
   
 end
 
+def check_extension_file
+  extfile = ""
+  File.open($startdir + "/platform/shared/ruby/ext/rho/extensions.c","r") do |f|
+    f.each_line do |line|
+      if line !~ /;/
+        extfile << line
+      else
+        loaded = false
+        $binextensions.each  { |loadedext| loaded = line.include? loadedext; break if loaded }
+        extfile << line if loaded
 
+      end
+
+    end
+  end
+  if extfile != ""
+    File.open($startdir + "/platform/shared/ruby/ext/rho/extensions.c","w") { |f| f.write extfile }
+  end
+end
+
+def clear_linker_settings
+  if $config["platform"] == "iphone"
+#    outfile = ""
+#    IO.read($startdir + "/platform/iphone/rhorunner.xcodeproj/project.pbxproj").each_line do |line|
+#      if line =~ /EXTENSIONS_LDFLAGS = /
+#        outfile << line.gsub(/EXTENSIONS_LDFLAGS = ".*"/, 'EXTENSIONS_LDFLAGS = ""')
+#      else
+#        outfile << line
+#      end
+#    end
+#    File.open($startdir + "/platform/iphone/rhorunner.xcodeproj/project.pbxproj","w") {|f| f.write outfile}
+#    ENV["EXTENSIONS_LDFLAGS"] = ""
+
+    $ldflags = ""
+  end
+
+end
+
+def add_linker_library(libraryname)
+#  if $config["platform"] == "iphone"
+#    outfile = ""
+#    IO.read($startdir + "/platform/iphone/rhorunner.xcodeproj/project.pbxproj").each_line do |line|
+#      if line =~ /EXTENSIONS_LDFLAGS = /
+#        outfile << line.gsub(/";/, " $(TARGET_TEMP_DIR)/#{libraryname}\";")
+#      else
+#        outfile << line
+#      end
+#    end
+#    File.open($startdir + "/platform/iphone/rhorunner.xcodeproj/project.pbxproj","w") {|f| f.write outfile}
+#  end
+      simulator = $sdk =~ /iphonesimulator/
+
+      if ENV["TARGET_TEMP_DIR"] and ENV["TARGET_TEMP_DIR"] != ""
+        tmpdir = ENV["TARGET_TEMP_DIR"]
+      else
+        tmpdir = $startdir + "/platform/iphone/build/rhorunner.build/#{$configuration}-" +
+          ( simulator ? "iphonesimulator" : "iphoneos") + "/rhorunner.build"
+      end
+  $ldflags << "#{tmpdir}/#{libraryname}\n" unless $ldflags.nil?
+end
+
+def set_linker_flags
+  if $config["platform"] == "iphone"
+      simulator = $sdk =~ /iphonesimulator/
+      if ENV["TARGET_TEMP_DIR"] and ENV["TARGET_TEMP_DIR"] != ""
+        tmpdir = ENV["TARGET_TEMP_DIR"]
+      else
+        tmpdir = $startdir + "/platform/iphone/build/rhorunner.build/#{$configuration}-" +
+          ( simulator ? "iphonesimulator" : "iphoneos") + "/rhorunner.build"
+      end
+      mkdir_p tmpdir unless File.exist? tmpdir
+      File.open(tmpdir + "/rhodeslibs.txt","w") { |f| f.write $ldflags }
+#    ENV["EXTENSIONS_LDFLAGS"] = $ldflags
+#    puts `export $EXTENSIONS_LDFLAGS`
+  end
+
+end
+
+def add_extension(path,dest)
+  start = pwd
+  chdir path if File.directory?(path)
+
+  Dir.glob("*").each { |f| cp_r f,dest unless f =~ /^ext(\/|(\.yml)?$)/ }
+
+  if File.exist? "ext.yml"
+    extension_config = YAML::load_file("ext.yml")
+
+    if extension_config["entry"] and extension_config["entry"] != ""
+      extfile = ""
+      File.open($startdir + "/platform/shared/ruby/ext/rho/extensions.c","r") do |f|
+        externstart = false
+        externwritten = false
+        callstart = false
+        callwritten = false
+
+        f.each_line do |line|
+   #       puts line
+          #are we starting a replacement area?
+          externstart = true if line =~ /EXTERNS/
+          callstart = true if line =~ /CALLS/
+
+
+          #if we arent in our replacement area, just copy the line
+          unless externstart or callstart
+            extfile << line
+          else
+            #always write an end marker
+            extfile << line if line =~ /END/
+            #did we just start the extern replacement area?
+            if externstart and not externwritten
+              #write marker and our new extension
+              extfile << line
+              extfile << "extern void #{extension_config["entry"]}(void);\n"
+              externwritten = true
+            end
+
+            #same for calls
+            if callstart and not callwritten
+              extfile << line
+              extfile << "#{extension_config["entry"]}();\n"
+              callwritten = true
+            end
+
+            #did we leave a replacement area
+            externstart = false if externstart and line =~ /END/
+            callstart = false if callstart and line =~ /END/
+
+            #if we are in a replacement area, check for lines that are there
+            #that we have marked as loaded and copy those over
+            #this is to make sure we are only loading things we explicitly marked
+            #leaving out lines that came from a previous run
+            if externstart or callstart
+              loaded = false
+              $binextensions.each  { |loadedext| loaded = line.include? loadedext; break if loaded }
+              extfile << line if loaded
+            end
+          end
+
+        end
+        $binextensions << extension_config["entry"]
+      end
+
+      if extfile != ""
+        File.open($startdir + "/platform/shared/ruby/ext/rho/extensions.c","w") { |f| f.write extfile }
+      end
+      
+    end
+
+    if extension_config["libraries"] and extension_config["libraries"].is_a? Array
+      extension_config["libraries"].each { |lib| add_linker_library(lib) }
+    end
+  end
+
+  chdir start
+
+end
 
 def common_bundle_start(startdir, dest)
   app = $app_path
@@ -54,17 +246,57 @@ def common_bundle_start(startdir, dest)
   mkdir_p File.join($srcdir,'apps')
 
 
-  
+  start = pwd
   chdir rhodeslib
-  Dir.glob("*").each { |f|
-    src = f
-    cp_r src,dest
-  }
+
+  Dir.glob("*").each { |f| cp_r f,dest }
+
   chdir dest
   Dir.glob("**/rhodes-framework.rb").each {|f| rm f}
   Dir.glob("**/erb.rb").each {|f| rm f}
   Dir.glob("**/find.rb").each {|f| rm f}
   $excludelib.each {|e| Dir.glob(e).each {|f| rm f}}
+
+  chdir start
+  clear_linker_settings
+
+  extensions = []
+  extensions += $app_config["extensions"] if $app_config["extensions"] and
+    $app_config["extensions"].is_a? Array
+  extensions += $app_config[$config["platform"]["extensions"]] if $config["platform"] and
+    $config["platform"]["extensions"] and $config["platform"]["extensions"].is_a? Array
+  $app_config["extensions"] = extensions
+    
+  $app_config["extensions"].each do |extname|
+    rhoextpath = "lib/extensions/" + extname
+    appextpath = $app_path + "/extensions/" + extname
+    extpath = nil
+
+    if File.exists? appextpath
+      extpath = appextpath
+    elsif File.exists? rhoextpath
+      extpath = rhoextpath
+    end
+
+    unless extpath.nil?
+      add_extension(extpath, dest)
+    end
+
+  end
+
+  check_extension_file
+  set_linker_flags
+
+  unless $app_config["constants"].nil?
+    File.open("rhobuild.rb","w") do |file|
+      file << "module RhoBuild\n"
+      $app_config["constants"].each do |key,value|
+        value.gsub!(/"/,"\\\"")
+        file << "  #{key.upcase} = \"#{value}\"\n"
+      end
+      file << "end\n"
+    end
+  end
 
   chdir startdir
   #throw "ME"
@@ -73,6 +305,20 @@ def common_bundle_start(startdir, dest)
   cp   app + '/rhoconfig.txt', File.join($srcdir,'apps')
 
   copy_assets($assetfolder) if ($assetfolder and File.exists? $assetfolder)
+
+  chdir File.join($srcdir,'apps')
+
+  Dir.glob("**/*.#{$config['platform']}.*").each do |file|
+    oldfile = file.gsub(Regexp.new(Regexp.escape('.') + $config['platform'] + Regexp.escape('.')),'.')
+    rm oldfile if File.exists? oldfile
+    mv file,oldfile
+  end
+  
+  Dir.glob("**/*.wm.*").each { |f| rm f }
+  Dir.glob("**/*.iphone.*").each { |f| rm f }
+  Dir.glob("**/*.bb.*").each { |f| rm f }
+  Dir.glob("**/*.android.*").each { |f| rm f }
+
 end
 
 def create_manifest
@@ -102,7 +348,9 @@ namespace "build" do
       startdir = pwd
       dest =  $srcdir
       xruby =  File.dirname(__FILE__) + '/res/build-tools/xruby-0.3.3.jar'
-
+      compileERB = "lib/build/compileERB/bb.rb"
+      rhodeslib = File.dirname(__FILE__) + "/lib/framework"
+      
       common_bundle_start(startdir,dest)
 
       if not $config["excludedirs"].nil?
@@ -115,27 +363,41 @@ namespace "build" do
           end
         end
       end
+      
+      cp_r File.join(startdir, "res/build-tools/db"), File.join($srcdir, 'apps')
+      
       chdir startdir
       
       #create manifest
       create_manifest
       
       #"compile ERB"
-      ext = ".erb"
-      Find.find($srcdir) do |path|
-        if File.extname(path) == ext
-          rbText = ERB.new( IO.read(path) ).src
-          newName = File.basename(path).sub('.erb','_erb.rb')
-          fName = File.join(File.dirname(path), newName)
-          frb = File.new(fName, "w")
-          frb.write( rbText )
-          frb.close()
-        end
+      #ext = ".erb"
+      #Find.find($srcdir) do |path|
+      #  if File.extname(path) == ext
+      #    rbText = ERB.new( IO.read(path) ).src
+      #    newName = File.basename(path).sub('.erb','_erb.rb')
+      #    fName = File.join(File.dirname(path), newName)
+      #    frb = File.new(fName, "w")
+      #    frb.write( rbText )
+      #    frb.close()
+      #  end
+      #end
+      cp   compileERB, $srcdir
+      puts "Running bb.rb"
+
+      puts `#{$rubypath} -I#{rhodeslib} "#{$srcdir}/bb.rb"`
+      unless $? == 0
+        puts "Error interpreting erb code"
+        exit 1
       end
 
+      rm "#{$srcdir}/bb.rb"
 
       chdir $bindir
-      puts `java -jar "#{xruby}" -v -c RhoBundle 2>&1`
+      # -n#{$bundleClassName}
+      output = `java -jar "#{xruby}" -v -c RhoBundle 2>&1`
+      output.each_line { |x| puts ">>> " + x  }
       unless $? == 0
         puts "Error interpreting ruby code"
         exit 1
@@ -145,6 +407,16 @@ namespace "build" do
   
       Dir.glob("**/*.rb") { |f| rm f }
       Dir.glob("**/*.erb") { |f| rm f }
+
+      # RubyIDContainer.* files takes half space of jar why we need it?
+      #Jake.unjar("../RhoBundle.jar", $tmpdir)
+      #Dir.glob($tmpdir + "/**/RubyIDContainer.class") { |f| rm f }
+      #rm "#{$bindir}/RhoBundle.jar"
+      #chdir $tmpdir
+      #puts `jar cf #{$bindir}/RhoBundle.jar #{$all_files_mask}`      
+      #rm_rf $tmpdir
+      #mkdir_p $tmpdir
+      #chdir $srcdir
       
       puts `jar uf ../RhoBundle.jar apps/#{$all_files_mask}`
       unless $? == 0
@@ -152,6 +424,7 @@ namespace "build" do
         exit 1
       end
       chdir startdir
+      
     end
 
     task :noxruby do
@@ -163,13 +436,14 @@ namespace "build" do
       dest = $srcdir + "/lib"      
 
       common_bundle_start(startdir,dest)
-
+      chdir startdir
+      
       create_manifest
       
       cp   compileERB, $srcdir
       puts "Running default.rb"
 
-      puts `#{$rubypath} -I#{rhodeslib} #{$srcdir}/default.rb` 
+      puts `#{$rubypath} -I#{rhodeslib} "#{$srcdir}/default.rb"`
       unless $? == 0
         puts "Error interpreting erb code"
         exit 1
@@ -179,7 +453,7 @@ namespace "build" do
 
       cp   compileRB, $srcdir
       puts "Running compileRB"
-      puts `#{$rubypath} -I#{rhodeslib} #{$srcdir}/compileRB.rb` 
+      puts `#{$rubypath} -I#{rhodeslib} "#{$srcdir}/compileRB.rb"`
       unless $? == 0
         puts "Error interpreting ruby code"
         exit 1
@@ -202,17 +476,18 @@ end
 
 #desc "Get versions"
 task :get_version do
-  bbver = "unknown"
+
+  genver = "unknown"
   iphonever = "unknown"
   #symver = "unknown"
   wmver = "unknown"
   androidver = "unknown"
   
 
-  File.open("rhobuild.yml","r") do |f|
+  File.open("res/generators/templates/application/build.yml","r") do |f|
     file = f.read
     if file.match(/version: (\d+\.\d+\.\d+)/)
-      bbver = $1
+      genver = $1
     end
   end
 
@@ -249,50 +524,42 @@ task :get_version do
     end
   end
 
+  gemver = "unknown"
   rhodesver = "unknown"
-  rbuildver = "unknown"
-  rframever = "unknown"
-  rgenver = "unknown"
+  frameworkver = "unknown"
 
-  File.open("rhodes/rhodes/lib/rhodes.rb","r") do |f|
+  File.open("lib/rhodes.rb","r") do |f|
+    file = f.read
+    if file.match(/VERSION = '(\d+\.\d+\.*\d*)'/)
+      gemver =  $1
+    end
+  end
+
+  File.open("lib/framework/rhodes.rb","r") do |f|
     file = f.read
     if file.match(/VERSION = '(\d+\.\d+\.*\d*)'/)
       rhodesver =  $1
     end
   end
 
-  File.open("lib/build/version.rb","r") do |f|
-    file = f.read
-    if file.match(/VERSION = '(\d+\.\d+\.*\d*)'/)
-      rbuildver =  $1
-    end
-  end
-
   File.open("lib/framework/version.rb","r") do |f|
     file = f.read
     if file.match(/VERSION = '(\d+\.\d+\.*\d*)'/)
-      rframever =  $1
+      frameworkver =  $1
     end
   end
 
-  File.open("rhodes/rhodes-generator/lib/version.rb","r") do |f|
-    file = f.read
-    if file.match(/VERSION = '(\d+\.\d+\.*\d*)'/)
-      rgenver =  $1
-    end
-  end
   
 
   puts "Versions:"
-  puts "  Blackberry:       " + bbver
+  puts "  Generator:        " + genver
   puts "  iPhone:           " + iphonever
   #puts "  Symbian:          " + symver
-  puts "  WinMo:            " + wmver
+  #puts "  WinMo:            " + wmver
   puts "  Android:          " + androidver
+  puts "  Gem:              " + gemver
   puts "  Rhodes:           " + rhodesver
-  puts "  Rhodes Build:     " + rbuildver
-  puts "  Rhodes Framework: " + rframever
-  puts "  Rhodes Generator: " + rgenver
+  puts "  Framework:        " + frameworkver
 end
 
 #desc "Set version"
@@ -308,15 +575,11 @@ task :set_version, [:version] do |t,args|
   verstring = major+"."+minor+"."+build
   origfile = ""
 
-  File.open("rhobuild.yml","r") { |f| origfile = f.read }
-  File.open("rhobuild.yml","w") do |f| 
+  File.open("res/generators/templates/application/build.yml","r") { |f| origfile = f.read }
+  File.open("res/generators/templates/application/build.yml","w") do |f|
     f.write origfile.gsub(/version: (\d+\.\d+\.\d+)/, "version: #{verstring}")
   end
   
-  File.open("rhodes/rhodes-generator/generators/templates/application/build.yml","r") { |f| origfile = f.read }
-  File.open("rhodes/rhodes-generator/generators/templates/application/build.yml","w") do |f| 
-    f.write origfile.gsub(/version: (\d+\.\d+\.\d+)/, "version: #{verstring}")
-  end
 
   File.open("platform/iphone/Info.plist","r") { |f| origfile = f.read }
   File.open("platform/iphone/Info.plist","w") do |f| 
@@ -341,11 +604,7 @@ task :set_version, [:version] do |t,args|
     f.write origfile
   end
 
-  ["rhodes/rhodes/lib/rhodes.rb",
-    "lib/build/version.rb",
-    "lib/framework/version.rb",
-    "lib/framework/rhodes.rb",
-    "rhodes/rhodes-generator/lib/version.rb"].each do |versionfile|
+  ["lib/rhodes.rb","lib/framework/rhodes.rb","lib/framework/version.rb"].each do |versionfile|
   
     File.open(versionfile,"r") { |f| origfile = f.read }
     File.open(versionfile,"w") do |f|
@@ -361,7 +620,7 @@ end
 
 namespace "buildall" do
   namespace "bb" do
-#    desc "Build all jdk versions for blackberry"
+    #    desc "Build all jdk versions for blackberry"
     task :production => "config:common" do
       $config["env"]["paths"].each do |k,v|
         if k.to_s =~ /^4/
@@ -413,7 +672,7 @@ task :gem do
 end
 
 task :tasks do
-  Rake::Task.tasks.each {|t| puts t.to_s}
+  Rake::Task.tasks.each {|t| puts t.to_s.ljust(27) + "# " + t.comment.to_s}
 end
 
 task :switch_app => "config:common" do
@@ -428,4 +687,17 @@ task :switch_app => "config:common" do
   File.open(  rhobuildyml, 'w' ) do |out|
     YAML.dump( config, out )
   end
+end
+
+
+Rake::RDocTask.new do |rd|
+  rd.main = "README.textile"
+  rd.rdoc_files.include("README.textile", "lib/framework/**/*.rb")
+end
+Rake::Task["rdoc"].comment=nil
+Rake::Task["rerdoc"].comment=nil
+
+task :rdocpush => :rdoc do
+  puts "Pushing RDOC. This may take a while"
+  `scp -r html/* dev@dev.rhomobile.com:dev.rhomobile.com/rhodes/`
 end

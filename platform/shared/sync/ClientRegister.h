@@ -30,11 +30,14 @@ public:
 	static CClientRegister* getInstance() { return m_pInstance; }
 	
 	virtual void run();	
+
+    const String& getDevicePin(){return m_strDevicePin;}
+    boolean doRegister(CSyncEngine& oSync);
+    String getRegisterBody();
 private:
 	CClientRegister(common::IRhoClassFactory* factory,const char* device_pin);
     ~CClientRegister();
 
-    boolean doRegister(CSyncEngine& oSync);
     net::INetRequest& getNet(){ return *m_NetRequest; }
 
 };

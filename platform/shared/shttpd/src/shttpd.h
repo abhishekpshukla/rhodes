@@ -13,6 +13,10 @@
 #ifndef SHTTPD_HEADER_INCLUDED
 #define	SHTTPD_HEADER_INCLUDED
 
+#if defined(OS_ANDROID)
+#include <sys/select.h>
+#endif // OS_ANDROID
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
@@ -61,7 +65,7 @@ struct shttpd_arg {
  *	It is safe to call shttpd_wakeup() from any thread. User code must
  *	not call shttpd_wakeup once the connection is closed.
  */
-typedef void (*shttpd_callback_t)(struct shttpd_arg *);
+typedef void (*shttpd_callback_t)(void *);
 
 /*
  * shttpd_init		Initialize shttpd context

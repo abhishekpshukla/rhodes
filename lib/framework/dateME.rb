@@ -26,12 +26,55 @@ class Time
         return strRes 
     end
     
-    DateTimeME.new(self.localtime).strftime(fmt)
+    DateTime.new(self.localtime).strftime(fmt)
   end
 
 end
 
-class DateTimeME < Date
+class Date
+
+  def self.today
+    Date.new( Time.now )
+  end
+
+  def self.strptime(str='-4712-01-01', fmt='%F')
+    Date.new( Time.strptime(str,fmt) )
+  end
+
+  def to_s() format('%.4d-%02d-%02d', year(), mon(), mday()) end # 4p
+
+  def _get_date
+    @m_date      
+  end
+  
+  def - (x)
+    ((@m_date-x._get_date()).to_i)/(60*60*24)
+  end
+
+  def wday() @m_date.wday end
+  def mon() @m_date.mon end
+  def year() @m_date.year end
+  def mday() @m_date.mday end
+  def offset() 
+    of = Rational(@m_date.gmt_offset() || 0, 86400)
+  end
+  def hour() @m_date.hour end
+  def min() @m_date.min end
+  def sec() @m_date.sec end
+  
+  def initialize( time )
+    @m_date = time
+  end
+  
+  def self.now()
+    Date.new( Time.now )  
+  end
+
+  private_class_method :now
+  
+end
+
+class DateTime < Date
 
   def wday() @m_time.wday end
   def mon() @m_time.mon end
@@ -40,9 +83,16 @@ class DateTimeME < Date
   def hour() @m_time.hour end
   def min() @m_time.min end
   def sec() @m_time.sec end
+  def offset() 
+    of = Rational(@m_time.gmt_offset() || 0, 86400)
+  end
   
   def initialize( time )
     @m_time = time
   end
-  
+
+  def to_datetime() self end
+
+  private_class_method :today
+  public_class_method  :now  
 end

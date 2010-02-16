@@ -6,17 +6,54 @@ module Rho
     class << self
       
       def url_encode(s)
-        s.to_s.dup.force_encoding("ASCII-8BIT").gsub(/[^a-zA-Z0-9_\-.]/n) {
-          sprintf("%%%02X", $&.unpack("C")[0])
-        }
+#        s.to_s.dup.force_encoding("ASCII-8BIT").gsub(/[^a-zA-Z0-9_\-.]/n) {
+#          sprintf("%%%02X", $&.unpack("C")[0])
+#        }
+        s.to_s.gsub(/[^a-zA-Z0-9_\-.]/n) do
+            us = $&
+            tmp = ''
+            us.each_byte do |uc|
+              tmp << sprintf('%%%02X', uc)
+            end
+            tmp
+        end.force_encoding("ASCII-8BIT")
+
+      end
+      #def url_decode(s)
+      #  s.tr('+',' ').gsub(/((?:%[0-9a-fA-f]{2})+)/n) do
+      #    [$1.delete('%')].pack('H*')  
+      #  end
+      #end
+      
+     # def _unescape(str, regex) str.gsub(regex){ $1.hex.chr } end
+      def url_decode(str)
+        _url_decode(str, /((?:%[0-9a-fA-f]{2})+)/n)
       end
       
-      def _unescape(str, regex) str.gsub(regex){ $1.hex.chr } end
+      def _url_decode(str, regex)
+        return str if str.nil? || str.length() == 0
+        
+        isEncoded = false
+        res = str.tr('+',' ').gsub(regex) { 
+          isEncoded = true
+          #[$&[1, 2].hex].pack('C') 
+          [$1.delete('%')].pack('H*')
+        }
+        if isEncoded
+            res.force_encoding("ASCII-8BIT") #need for BB since Java string is UTF16
+            res.force_encoding('UTF-8')
+        end
+        
+        res    
+      end
+
+      #ESCAPED = /%([0-9a-fA-F]{2})/
 	
-      ESCAPED = /%([0-9a-fA-F]{2})/
-	
-      def unescape_form(str)
-        _unescape(str.gsub(/\+/, " "), ESCAPED)
+      #def unescape_form(str)
+      #  _unescape(str.gsub(/\+/, " "), ESCAPED)
+      #end
+      def form_decode(str)
+        _url_decode(str, /%([0-9a-fA-F]{2})/)
       end
 
       def parse_query_parameters(query_string)
@@ -26,8 +63,8 @@ module Rho
           next if chunk.empty?
           key, value = chunk.split('=', 2)
           next if key.empty?
-          value = value.nil? ? nil : unescape_form(value)
-          [ unescape_form(key), value ]
+          value = value.nil? ? nil : form_decode(value)
+          [ form_decode(key), value ]
         end.compact
 
         UrlEncodedPairParser.new(pairs).result

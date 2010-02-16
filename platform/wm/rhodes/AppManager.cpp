@@ -5,7 +5,7 @@
 #ifdef ENABLE_DYNAMIC_RHOBUNDLE
 #include "rho/net/NetRequest.h"
 
-#include "HttpServer.h"
+#include "common/RhodesApp.h"
 
 #include "unzip.h"
 #include "ext/rho/rhoruby.h"
@@ -52,20 +52,21 @@ void CAppManager::ReloadRhoBundle(HWND hwnd, const char* szUrl, const char* szZi
 		//get zip file with rhodes
 		//DWORD dwDataSize = 0;
         rho::net::CNetRequest request;
-        NetResponse(resp, request.pullData(szUrl));
+        NetResponse(resp, request.pullData(szUrl, null));
         DWORD dwDataSize = resp.getDataSize();
 		//char* zipData = request.doRequest( L"GET",const_cast<char*>(szUrl),NULL,0,NULL,0,false,true,false,&dwDataSize);
         const char* zipData = resp.getCharData();
 		if ( zipData && dwDataSize > 0 )
 		{
-			LPWSTR rootw = wce_mbtowc(RhoGetRootPath());
-
+			LPWSTR rootw = wce_mbtowc(rho_native_rhopath());
+			rootw[wcslen(rootw)-1] = '\\';
 			bool ret = false;
 			if (wcslen(rootw)<MAX_PATH) {
 				TCHAR name[MAX_PATH+2];
 				wsprintf(name,L"%sapps%c",rootw,'\0');
 				if( RemoveFolder(name) ) {
 					wsprintf(name,L"%slib%c",rootw,'\0');
+
 					ret = RemoveFolder(name);
 				}
 			}
@@ -78,7 +79,7 @@ void CAppManager::ReloadRhoBundle(HWND hwnd, const char* szUrl, const char* szZi
 			
 				if ( hz ) {
 					//Stop HTTP Server
-					CHttpServer::Instance()->FreezeThread();
+					RHODESAPP().stopApp();
 
 					// Set base for unziping
 					SetUnzipBaseDir(hz, rootw);

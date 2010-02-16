@@ -1,8 +1,8 @@
 #pragma once
 
 #include "common/IRhoClassFactory.h"
-#include "../net/NetRequest.h"
-#include "RhoThreadImpl.h"
+#include "net/CURLNetRequest.h"
+#include "common/PosixThreadImpl.h"
 #include "SystemInfoImpl.h"
 
 namespace rho {
@@ -14,11 +14,11 @@ public:
     virtual ~CRhoClassFactory(void){}
     net::INetRequest* createNetRequest()
     {
-        return new net::CNetRequest();
+        return new net::CURLNetRequest();
     }
     virtual common::IRhoThreadImpl* createThreadImpl()
     {
-        return new common::CRhoThreadImpl;
+        return new CPosixThreadImpl;
     }
     virtual ISystemInfo* createSystemInfo()
     {

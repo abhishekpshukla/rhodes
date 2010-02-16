@@ -1,4 +1,5 @@
 require 'pathname'
+require 'yaml'
   
 class Hash
   def fetch_r(key)
@@ -67,7 +68,11 @@ class Jake
           if x =~ /%(.*?)%/
             x.gsub!(/%.*?%/, @@config.fetch_r($1).to_s)
           end
-  	      x.to_s
+          s = x.to_s
+          if File.exists? s
+            s.gsub!(/\\/, '/')
+  	      end
+  	      s
         end
       end
     elsif conf.is_a?(Hash)
@@ -77,7 +82,11 @@ class Jake
         if x.is_a?(Hash) or x.is_a?(Array)
           newhash[k.to_s] = config_parse(x)
         else
-          newhash[k.to_s] = x.to_s
+          s = x.to_s
+          if File.exists? s
+            s.gsub!(/\\/, '/')
+          end
+          newhash[k.to_s] = s
         end
       end
       conf = newhash
@@ -105,9 +114,9 @@ class Jake
       chdir wd  
     end
     
-    puts "PWD:" + pwd
-    puts "CMD:" + command
-    puts "ARGS:" + argstr
+    puts "PWD: " + pwd
+    puts "CMD: " + command
+    puts "ARGS: " + argstr
     
     command = command + " " + argstr
     if hideerrors
@@ -191,7 +200,7 @@ class Jake
     args << manifest
     if isfolder
       args << "-C"
-      args << files
+      args << '"' + files +'"'
       args << "."
     else
       args << files
@@ -219,7 +228,7 @@ class Jake
       f = File.new(output + ".rapc", "w")
       f.write "MicroEdition-Profile: MIDP-2.0\n"
       f.write "MicroEdition-Configuration: CLDC-1.1\n"
-      f.write "MIDlet-Name: " + output + "\n"
+      f.write "MIDlet-Name: " + title + "\n"
       f.write "MIDlet-Version: " + version.to_s + "\n"
       f.write "MIDlet-Vendor: " + vendor.to_s + "\n"
       f.write "MIDlet-Jar-URL: " + output + ".jar\n"
@@ -249,9 +258,11 @@ class Jake
     args << 'library=' + output if library
     args << output + '.rapc'
     args << files
+    args << "2>&1"
   
     cmd.gsub!(/\//,"\\")
-    puts run( '"' + cmd + '"',args)
+    outputstring = run( '"' + cmd + '"',args)
+    puts outputstring unless $? == 0
     chdir currentdir
   
   end

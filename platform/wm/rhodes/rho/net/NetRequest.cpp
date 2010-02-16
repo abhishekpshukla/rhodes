@@ -4,51 +4,49 @@
 #include "common/AutoPointer.h"
 #include "common/RhoFile.h"
 #include "NetRequestImpl.h"
-
-extern "C" char* HTTPResolveUrl(char* url);
+#include "common/RhodesApp.h"
 
 namespace rho {
 namespace net {
 IMPLEMENT_LOGCLASS(CNetRequest,"Net");
 
-INetResponse* CNetRequest::pullData(const String& strUrl )
+INetResponse* CNetRequest::pullData(const String& strUrl, IRhoSession* oSession )
 {
-    return doRequest("GET",strUrl,String());
+    return doRequest("GET",strUrl,String(),oSession,null);
 }
 
-INetResponse* CNetRequest::pushData(const String& strUrl, const String& strBody)
+INetResponse* CNetRequest::pushData(const String& strUrl, const String& strBody, IRhoSession* oSession)
 {
-    return doRequest("POST",strUrl,strBody);
+    return doRequest("POST",strUrl,strBody,oSession,null);
 }
 
-INetResponse* CNetRequest::pullCookies(const String& strUrl, const String& strBody)
+INetResponse* CNetRequest::pullCookies(const String& strUrl, const String& strBody, IRhoSession* oSession)
 {
-    return doRequest("POST",strUrl,strBody);
-}
+    CNetRequestImpl oImpl(this, "POST",strUrl,oSession,null);
+    CNetResponseImpl* resp = oImpl.sendString(strBody);
 
-//if strUrl.length() == 0 delete all cookies if possible
-void CNetRequest::deleteCookie(const String& strUrl)
-{
-    if ( strUrl.length() > 0 )
-        ::InternetSetCookieA(strUrl.c_str(), NULL, "");
+    if ( resp && resp->isOK() )
+    {
+        ((CNetResponseImpl*)resp)->getRawData() = oImpl.makeRhoCookie();
+        //((CNetResponseImpl*)resp)->getRawData() = "exists";
+    }
+
+    return resp;
 }
 
 String CNetRequest::resolveUrl(const String& strUrl)
 {
-    char* url = HTTPResolveUrl( strdup(strUrl.c_str()) );
-    String res = url;
-    free(url);
-    return res;
+    return RHODESAPP().canonicalizeRhoUrl(strUrl);
 }
 
 void CNetRequest::cancel()
 {
     m_bCancel = true;
     if ( m_pCurNetRequestImpl != null )
-        m_pCurNetRequestImpl->close();
+        m_pCurNetRequestImpl->cancel();
 }
 
-INetResponse* CNetRequest::pushFile(const String& strUrl, const String& strFilePath)
+INetResponse* CNetRequest::pushFile(const String& strUrl, const String& strFilePath, IRhoSession* oSession)
 {
     common::CRhoFile oFile;
     if ( !oFile.open(strFilePath.c_str(),common::CRhoFile::OpenReadOnly) ) 
@@ -65,7 +63,7 @@ INetResponse* CNetRequest::pushFile(const String& strUrl, const String& strFileP
         if ( pResp )
             delete pResp;
 
-        CNetRequestImpl oImpl(this, "POST",strUrl);
+        CNetRequestImpl oImpl(this, "POST",strUrl,oSession,null);
         pResp = oImpl.sendStream(oFile.getInputStream());
         nTry++;
 
@@ -74,7 +72,7 @@ INetResponse* CNetRequest::pushFile(const String& strUrl, const String& strFileP
     return pResp;
 }
 
-INetResponse* CNetRequest::pullFile(const String& strUrl, const String& strFilePath)
+INetResponse* CNetRequest::pullFile(const String& strUrl, const String& strFilePath, IRhoSession* oSession)
 {
     common::CRhoFile oFile;
     if ( !oFile.open(strFilePath.c_str(),common::CRhoFile::OpenForWrite) ) 
@@ -91,7 +89,7 @@ INetResponse* CNetRequest::pullFile(const String& strUrl, const String& strFileP
         if ( pResp )
             delete pResp;
 
-        CNetRequestImpl oImpl(this, "GET",strUrl);
+        CNetRequestImpl oImpl(this, "GET",strUrl,oSession,null);
         pResp = oImpl.downloadFile(oFile);
         nTry++;
 
@@ -100,7 +98,7 @@ INetResponse* CNetRequest::pullFile(const String& strUrl, const String& strFileP
     return pResp;
 }
 
-INetResponse* CNetRequest::doRequest( const char* method, const String& strUrl, const String& strBody )
+INetResponse* CNetRequest::doRequest( const char* method, const String& strUrl, const String& strBody, IRhoSession* oSession, Hashtable<String,String>* pHeaders )
 {
     int nTry = 0;
     m_bCancel = false;
@@ -110,7 +108,7 @@ INetResponse* CNetRequest::doRequest( const char* method, const String& strUrl, 
         if ( pResp )
             delete pResp;
 
-        CNetRequestImpl oImpl(this, method,strUrl);
+        CNetRequestImpl oImpl(this, method,strUrl,oSession,pHeaders);
         pResp = oImpl.sendString(strBody);
         nTry++;
 

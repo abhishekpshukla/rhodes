@@ -1,19 +1,17 @@
 package com.rhomobile.rhodes.camera;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.rho.RhoClassFactory;
 import com.rhomobile.rhodes.AndroidR;
-import com.rhomobile.rhodes.RhodesInstance;
+import com.rhomobile.rhodes.Logger;
+import com.rhomobile.rhodes.Rhodes;
 
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.AdapterView;
@@ -26,6 +24,8 @@ import android.widget.AdapterView.OnItemClickListener;
 
 public class FileList extends Activity implements OnClickListener{
 
+	private static final String TAG = "FileList";
+	
 	//public final static String BASE_CAMERA_DIR = "/sdcard/dcim/Camera/";
 	
 	private Button okButton;
@@ -41,6 +41,7 @@ public class FileList extends Activity implements OnClickListener{
 	public void onCreate(Bundle icicle) {
 		super.onCreate(icicle);
 
+		getWindow().setFlags(Rhodes.WINDOW_FLAGS, Rhodes.WINDOW_MASK);
 		setContentView(AndroidR.layout.directory_list);
 
 		imagePreview = (ImageView) findViewById(AndroidR.id.preview);
@@ -73,7 +74,7 @@ public class FileList extends Activity implements OnClickListener{
 					Bitmap bm = Bitmap.createScaledBitmap(obm, 176, 144, true);
 					imagePreview.setImageBitmap(bm);
 				} catch (Exception e) {
-					Log.e("FileList", e.getMessage());
+					Logger.E(TAG, e.getMessage());
 				}
 			}
 			
@@ -83,12 +84,12 @@ public class FileList extends Activity implements OnClickListener{
 	public void onClick(View view) {
 		switch (view.getId()) {
 		case AndroidR.id.okButton:
-			com.rhomobile.rhodes.camera.Camera.callCallback(this.selectedFilePath);
+			com.rhomobile.rhodes.camera.Camera.doCallback(this.selectedFilePath);
 			finish();
 			break;
 		case AndroidR.id.cancelButton:
 			selectedFilePath = "";
-			com.rhomobile.rhodes.camera.Camera.callCallback(this.selectedFilePath);
+			com.rhomobile.rhodes.camera.Camera.doCallback(this.selectedFilePath);
 			finish();
 			break;
 		}

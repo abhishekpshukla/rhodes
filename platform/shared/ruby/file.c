@@ -524,7 +524,11 @@ stat_atimespec(struct stat *st)
 #elif defined(HAVE_STRUCT_STAT_ST_ATIMESPEC)
     ts.tv_nsec = st->st_atimespec.tv_nsec;
 #elif defined(HAVE_STRUCT_STAT_ST_ATIMENSEC)
+#  if defined(OS_ANDROID)
+	ts.tv_nsec = st->st_atime_nsec;
+#  else
     ts.tv_nsec = st->st_atimensec;
+#  endif
 #else
     ts.tv_nsec = 0;
 #endif
@@ -1168,18 +1172,23 @@ rb_file_chardev_p(VALUE obj, VALUE fname)
  * Return <code>true</code> if the named file exists.
  */
 
+int rho_rhodesapp_isrubycompiler();
 static VALUE
 rb_file_exist_p(VALUE obj, VALUE fname)
 {
 //RHO
-/*    struct stat st;
+    if ( rho_rhodesapp_isrubycompiler() )
+    {
+        struct stat st;
 
-    if (rb_stat(fname, &st) < 0) return Qfalse;
-    return Qtrue;*/
-
-    if( file_load_ok(RSTRING_PTR(fname)) ) 
+        if (rb_stat(fname, &st) < 0) return Qfalse;
         return Qtrue;
-    return Qfalse;
+    }else
+    {
+        if( file_load_ok(RSTRING_PTR(fname)) ) 
+            return Qtrue;
+        return Qfalse;
+    }
 //RHO
 }
 

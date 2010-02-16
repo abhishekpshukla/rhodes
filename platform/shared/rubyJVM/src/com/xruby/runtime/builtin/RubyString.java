@@ -22,7 +22,8 @@ import com.xruby.runtime.lang.*;
 //@RubyLevelClass(name="String")
 public class RubyString extends RubyBasic {
     private StringBuffer sb_;
-
+    private RubyValue m_valEncoding;
+    
     RubyString(RubyClass c, String s) {
         super(c);
         sb_ = new StringBuffer(s);
@@ -131,6 +132,20 @@ public class RubyString extends RubyBasic {
         }
     }
 
+    public int appendString2(RubyValue v) {
+    	RubyString str = null;
+        if (v instanceof RubyString) {
+            str = (RubyString)v;
+        } else {
+            RubyValue r = RubyAPI.callPublicNoArgMethod(v, null, RubyID.toSID);
+            str = (RubyString)r;
+        }
+        
+        appendString(str);
+        
+        return str.length();
+    }
+    
     //@RubyAllocMethod
     public static RubyString alloc(RubyValue receiver) {
         return ObjectFactory.createString((RubyClass)receiver, "");
@@ -223,7 +238,7 @@ public class RubyString extends RubyBasic {
     }
 
     private String replace(String source, int start, int end, String replacement) {
-        AssertMe.rho_assert(start <= source.length() - 1);
+        AssertMe.rho_assert(start <= source.length()/* - 1*/);
 
         if (end < start) {
             end = start + 1;
@@ -306,10 +321,16 @@ public class RubyString extends RubyBasic {
 
     private Collection/*<String>*/ split(RubyString s, String delimiter) {
         StringParser t = new StringParser(s.toString(), delimiter);
-        int total = t.countTokens();
-        Collection/*<String>*/ r = new ArrayList/*<String>*/(total);
-        for (int i = 0; i < total; ++i) {
-            r.add(t.nextToken());
+//        int total = t.countTokens();
+        //Collection/*<String>*/ r = new ArrayList/*<String>*/(total);
+//        for (int i = 0; i < total; ++i) {
+//            r.add(t.nextToken());
+//        }
+        
+        Collection/*<String>*/ r = new ArrayList/*<String>*/(0);
+        while ( t.hasMoreElements() )
+        {
+        	r.add(t.nextElement());
         }
         return r;
     }
@@ -391,6 +412,15 @@ public class RubyString extends RubyBasic {
     			return RubyConstant.QTRUE;
     	}
         return RubyConstant.QFALSE;
+    }
+
+    //@RubyLevelMethod(name="ord")
+    public RubyValue ord() 
+    {
+    	if ( sb_ == null || sb_.length() == 0 )
+    		return ObjectFactory.createFixnum(0);
+    	
+    	return ObjectFactory.createFixnum(sb_.charAt(0));
     }
     
     //@RubyLevelMethod(name="strip")
@@ -678,15 +708,19 @@ public class RubyString extends RubyBasic {
             return true;
         } else {
             boolean changed = false;
-            for (;;) {
-                int index = StringBufferMe.indexOf(sb_, from);
-                if (index < 0) {
-                    return changed;
+            for (int i = 0; i < from.length(); i++) 
+            {
+                int index = sb_.toString().indexOf(from.charAt(i));
+                while (index >= 0) 
+                {
+	                sb_.deleteCharAt(index);
+	                changed = true;
+	                
+	                index = sb_.toString().indexOf(from.charAt(i));
                 }
-
-                sb_.delete(index, index + from.length());
-                changed = true;
             }
+            
+            return changed;
         }
     }
 
@@ -700,6 +734,17 @@ public class RubyString extends RubyBasic {
         return n;
     }
 
+    public String getChars( int nPos, int nLen)
+    {
+    	if ( nPos + nLen > sb_.length() )
+    		nLen =  sb_.length() - nPos;
+    			
+        char[] ca = new char[nLen];
+        this.sb_.getChars(nPos, nPos+nLen, ca, 0);
+        
+        return new String(ca);
+    }
+    
     //@RubyLevelMethod(name="swapcase")
     public RubyString swapcase() {
         int length = this.sb_.length();
@@ -896,7 +941,10 @@ public class RubyString extends RubyBasic {
         }
 
         value = value.substring(0, end);
-
+        int nPoint = value.indexOf('.'); 
+        if (nPoint >= 0 )
+        	value = value.substring(0, nPoint);
+        
         if (radix >= 2 && radix <= 36) {
             HugeInt bigint;
             try {
@@ -1012,10 +1060,16 @@ public class RubyString extends RubyBasic {
         RubyValue r = (null == args) ? GlobalVariables.get("$;") : args.get(0);
 
         Collection/*<String>*/ splitResult;
+        boolean bSkipFirstEmptyItem = false;
         if (r == RubyConstant.QNIL) {
             splitResult = split(this, " ");
-        } else if (r instanceof RubyRegexp) {
-            splitResult = split(this, (RubyRegexp) r, args);
+        } else if (r instanceof RubyRegexp) 
+        {
+        	RubyRegexp reg = (RubyRegexp) r;
+            splitResult = split(this, reg, args);
+            
+            if ( reg.getPattern().getPattern().startsWith("(?=") )
+            	bSkipFirstEmptyItem = true;
         } else if (r instanceof RubyString) {
             splitResult = split(this, ((RubyString) r).toString());
         } else {
@@ -1027,7 +1081,8 @@ public class RubyString extends RubyBasic {
 //        for (String str : splitResult) {
         for (Iterator iter = splitResult.iterator(); iter.hasNext();) {
         	String str = (String)iter.next();
-            if (0 != i || !str.equals("")) {
+            if ( !( bSkipFirstEmptyItem && 0 == i && (str == null || str.equals(""))) )
+            {
                 //To conform ruby's behavior, discard the first empty element
                 a.add(ObjectFactory.createString(str));
             }
@@ -1180,8 +1235,9 @@ public class RubyString extends RubyBasic {
 
             start = args.get(0).toInt();
             end = args.get(1).toInt() + start;
-            if (start >= string.length()) {
-                throw new RubyException(RubyRuntime.RangeClass, StringMe.format("index %d out of string", start));
+            if (start >/*=*/ string.length()) {
+                throw new RubyException(RubyRuntime.RangeClass, 
+                		"Index '" + start + "' out of string:" + string +";end: '" + end + "';replacement:"+replacement+"" );
             }
         }
         setString(replace(string, start, end, replacement));
@@ -1219,12 +1275,23 @@ public class RubyString extends RubyBasic {
     }
 
     //@RubyLevelMethod(name="each_byte")
-    public RubyValue each_byte(RubyBlock block) {
+    public RubyValue each_byte(RubyBlock block) 
+    {
         String string = toString();
-        for (int i = 0; i < string.length(); ++i) {
-            char c = string.charAt(i);
-            block.invoke(this, ObjectFactory.createFixnum((int) c));
+        byte bytes[] = null;
+        try{
+        	bytes = string.getBytes("UTF-8");
+        }catch(java.io.UnsupportedEncodingException exc){}
+        
+        for (int i = 0; bytes != null && i <bytes.length; ++i) 
+        {
+        	int nByte = bytes[i];
+        	if ( nByte < 0 )
+        		nByte = 256 + nByte;
+        	
+            block.invoke(this, ObjectFactory.createFixnum(nByte));
         }
+    	
         return this;
     }
 
@@ -1356,12 +1423,28 @@ public class RubyString extends RubyBasic {
 
     //RHO_COMMENT
     //@RubyLevelMethod(name="encoding")
-    public RubyValue getEncoding() {
+    public RubyValue getEncoding() 
+    {
+    	if (m_valEncoding!=null)
+    		return m_valEncoding;
+    	
         return ObjectFactory.createString("ASCII-8BIT");//"UTF-8");
     }
     //@RubyLevelMethod(name="force_encoding")
-    public RubyValue force_encoding(RubyValue arg) {
-    	//TODO: should we do something ?
+    public RubyValue force_encoding(RubyValue arg) 
+    {
+    	if ( (m_valEncoding != null && !m_valEncoding.toString().equalsIgnoreCase("UTF-8") ) && arg.toString().equalsIgnoreCase("UTF-8"))
+    	{
+    		try{
+	    		byte bytes[] = sb_.toString().getBytes("ISO8859_1");
+	    		String str1 = new String(bytes, "UTF-8");
+	    		sb_ = new StringBuffer(str1);
+    		}catch(java.io.UnsupportedEncodingException exc){
+    			sb_ = new StringBuffer("");
+    		}
+    	}
+    	
+    	m_valEncoding = arg;
         return this;
     }
     

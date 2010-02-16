@@ -1,4 +1,4 @@
-require 'time'
+#require 'time'
 require 'rho/render'
 require 'rho/rhoapplication'
 require 'rhom'
@@ -27,6 +27,10 @@ module Rho
 
     def init_app
       get_app(APPNAME)
+    end
+
+    def activate_app
+      get_app(APPNAME).on_activate_app
     end
     
     # make sure we close the database file
@@ -90,23 +94,39 @@ module Rho
       if defined? Rho::RhoConfig::sources
         
         # quick and dirty way to get unique array of hashes
-        uniq_sources = Rho::RhoConfig::sources.values.inject([]) { |result,h| 
-          result << h unless result.include?(h); result
-        }
+        #uniq_sources = Rho::RhoConfig::sources.values.inject([]) { |result,h| 
+        #  result << h unless result.include?(h); result
+        #}
+        uniq_sources = Rho::RhoConfig::sources.values
+        puts 'init_sources: ' + uniq_sources.inspect
+
+        result = ::Rhom::RhomDbAdapter.execute_sql("SELECT MAX(source_id) AS maxid FROM sources")
+        #puts 'result: ' + result.inspect
+        start_id = result.length > 0 && result[0]['maxid'] ? result[0]['maxid']+1 : 0
         
         # generate unique source list in database for sync
         uniq_sources.each do |source|
           
-          src_id = source['source_id']
           url = source['url']
           name = source['name']
-          attribs = Rhom::RhomDbAdapter::select_from_table('sources','source_attribs', 'source_id'=>src_id)
+          priority = source['priority']
+          attribs = Rhom::RhomDbAdapter::select_from_table('sources','priority,source_id,source_url', 'name'=>name)
 
           if attribs && attribs.size > 0 
-            #Rhom::RhomAttribManager.load(src_id,attribs[0]['source_attribs'])
+            if attribs[0]['priority'].to_i != priority.to_i
+                Rhom::RhomDbAdapter::update_into_table('sources', {"priority"=>priority}, {"name"=>name})
+            end
+            if attribs[0]['source_url'] != url
+                Rhom::RhomDbAdapter::update_into_table('sources', {"source_url"=>url}, {"name"=>name})
+            end
+            
+            Rho::RhoConfig::sources[name]['source_id'] = attribs[0]['source_id'].to_i
           else
             Rhom::RhomDbAdapter::insert_into_table('sources',
-                                                  {"source_id"=>src_id,"source_url"=>url,"name"=>name})
+                {"source_id"=>start_id,"source_url"=>url,"name"=>name, "priority"=>priority})
+            Rho::RhoConfig::sources[name]['source_id'] = start_id
+            
+            start_id += 1
           end
         end
       end
@@ -160,8 +180,24 @@ module Rho
         res['request-body'] = RhoController::renderfile(index_name)
         return send_response_hash(res)
       rescue Exception => e
-        return send_error(e.message, 500, true)
+        return send_error(e, 500, true)
       end
+    end
+
+
+    def make_httpdate(t)
+      _RFC2822_DAY_NAME = [
+        'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
+      ]
+      _RFC2822_MONTH_NAME = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ]
+    
+        sprintf('%s, %02d %s %d %02d:%02d:%02d GMT',
+          _RFC2822_DAY_NAME[t.wday],
+          t.day, _RFC2822_MONTH_NAME[t.mon-1], t.year,
+          t.hour, t.min, t.sec)
     end
     
     def init_response(status=200,message="OK",body="")
@@ -170,8 +206,8 @@ module Rho
       res['message'] = message
       res['headers'] = 
         {
-        'Date' => Time.now.httpdate,
-        'Content-Type' => 'text/html',
+        'Date' => make_httpdate(Time.now),#.httpdate,
+        'Content-Type' => 'text/html; charset=utf-8',
         'Content-Length' => 0,
         'Connection' => 'close' 
       }
@@ -184,7 +220,7 @@ module Rho
     CRLF = "\x0d\x0a"
     
     def send_response(res)
-      res['headers']['Content-Length'] = !res['request-body'].nil? && res['request-body'].is_a?(String) ? res['request-body'].length : 0
+      res['headers']['Content-Length'] = !res['request-body'].nil? && res['request-body'].is_a?(String) ? res['request-body'].bytesize : 0
       data = "HTTP/1.1 #{res['status'].to_s} #{res['message']}" + CRLF
       res['headers'].each{|key, value|
         tmp = key.gsub(/\bwww|^te$|\b\w/){|s| s.upcase }
@@ -206,7 +242,7 @@ module Rho
 
     def send_response_hash(res)
       resp = Hash.new
-      res['headers']['Content-Length'] = !res['request-body'].nil? && res['request-body'].is_a?(String) ? res['request-body'].length : 0
+      res['headers']['Content-Length'] = !res['request-body'].nil? && res['request-body'].is_a?(String) ? res['request-body'].bytesize : 0
       res['headers'].each{|key, value|
           tmp = key.gsub(/\bwww|^te$|\b\w/){|s| s.upcase }
           resp[tmp] = value
@@ -218,8 +254,36 @@ module Rho
       resp
     end
     
+    @@current_exception = nil
+    def self.current_exception
+        @@current_exception
+    end
+        
     def send_error(exception=nil,status=500,hash=false)
+	  puts "App error: #{exception}" if exception
       body=''
+      
+      err_page = nil
+      if exception && exception.is_a?(::Rhom::RecordNotFound)
+        err_page = RhoApplication::get_app_path(APPNAME) + 'E400_erb.iseq'
+        err_page = nil unless File.exist?(err_page)
+      elsif exception
+        err_page = RhoApplication::get_app_path(APPNAME) + 'E500_erb.iseq'
+        err_page = nil unless File.exist?(err_page)
+      end
+
+      if err_page
+          @@current_exception = exception
+          puts 'show error: ' + @@current_exception.inspect
+          body = RhoController::renderfile(err_page)
+          
+          if ( hash )
+            return send_response_hash(init_response(200,"OK",body))
+          end
+      
+          return send_response(init_response(200,"OK",body))
+      end
+      
       body << <<-_HTML_STRING_
         <html>
             <head>
@@ -230,7 +294,7 @@ module Rho
                 <p>
       _HTML_STRING_
       body << 'Error: ' << exception.message << "<br/>" if exception
-      body << 'Trace: ' << exception.backtrace.join("\n") if exception
+      body << "Trace: <br/>\n" << exception.backtrace.join("<br/>\n") if exception
       body << <<-_HTML_STRING_
                 </p>    
             </body>
@@ -292,13 +356,38 @@ module Rho
       end
       
       def add_source(modelname, new_source=nil)
-        if new_source
-          unless @@sources[new_source]
-            @@sources[modelname] = new_source
-            @@sources[modelname]['name'] ||= modelname
-          end
-        end
+        return if !modelname || modelname.length() == 0 || @@sources[modelname]
+        
+        @@sources[modelname] = new_source ? new_source : {}
+        @@sources[modelname]['name'] ||= modelname
+        @@sources[modelname]['priority'] ||= 1000
+
+#        if new_source
+#          unless @@sources[modelname]
+#            @@sources[modelname] = new_source
+#            @@sources[modelname]['name'] ||= modelname
+#            @@sources[modelname]['source_id'] = generate_id()
+#          end
+#        end
       end
+      
+      @@g_base_temp_id = nil
+      def generate_id
+        @@g_base_temp_id = ((Time.now.to_f - Time.mktime(2009,"jan",1,0,0,0,0).to_f) * 10**6).to_i unless @@g_base_temp_id
+        
+        @@g_base_temp_id = @@g_base_temp_id + 1
+        @@g_base_temp_id
+      end
+      
     end
   end # RhoConfig
 end # Rho
+
+module AsyncHttp
+    def self.get(args)
+        AsyncHttp.do_get(args[:url], args[:headers], args[:callback], args[:callback_param] )
+    end
+    def self.post(args)
+        AsyncHttp.do_post(args[:url], args[:headers], args[:body], args[:callback], args[:callback_param] )
+    end
+end

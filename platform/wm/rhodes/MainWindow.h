@@ -37,7 +37,7 @@ public:
 	void Navigate2(BSTR URL);
     void Navigate(BSTR URL);
 	
-	char* GetCurrentLocation() { return m_current_url; }
+	//char* GetCurrentLocation() { return m_current_url; }
 
     // Required to forward messages to the PIEWebBrowser control
     BOOL TranslateAccelerator(MSG* pMsg);
@@ -79,7 +79,7 @@ public:
         COMMAND_ID_HANDLER(IDM_OPTIONS, OnOptionsCommand)
         COMMAND_ID_HANDLER(IDM_LOG,OnLogCommand)
 		COMMAND_ID_HANDLER(IDM_RELOADRHOBUNDLE, OnReloadRhobundleCommand)
-		COMMAND_ID_HANDLER(IDM_START_PAGE, OnLoadStartPageCommand)
+//		COMMAND_ID_HANDLER(IDM_START_PAGE, OnLoadStartPageCommand)
 #if defined(OS_WINDOWS)
 		COMMAND_ID_HANDLER(IDM_POPUP_MENU, OnPopupMenuCommand)
 		MESSAGE_HANDLER(WM_WINDOWPOSCHANGED, OnPosChanged)
@@ -110,7 +110,7 @@ private:
 	LRESULT OnOptionsCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 	LRESULT OnLogCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 	LRESULT OnReloadRhobundleCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
-	LRESULT OnLoadStartPageCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
+//	LRESULT OnLoadStartPageCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 
 #if defined(OS_WINDOWS)
 	LRESULT OnPopupMenuCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
@@ -171,12 +171,22 @@ private:
 
 	bool m_bLoading;
 	bool m_bRhobundleReloadEnabled;
-	char* m_current_url;
-    char* m_szStartPage;
+	//char* m_current_url;
+    //char* m_szStartPage;
 
 	void SetRhobundleReloadMenu();
 
+#if !defined(_WIN32_WCE)
 private:
-	void SendCameraCallbackRequest(HRESULT status, LPTSTR image_name, char* callback_url);
+	static int m_screenWidth;
+	static int m_screenHeight;
+
+public:
+	static int getScreenWidth() {return m_screenWidth;}
+	static int getScreenHeight() {return m_screenHeight;}
+#endif
+
+//private:
+//	void SendCameraCallbackRequest(HRESULT status, LPTSTR image_name, char* callback_url);
 };
 

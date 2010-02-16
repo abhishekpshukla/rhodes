@@ -95,6 +95,10 @@ public class RubyRuntime {
     public static RubyClass RingtoneManagerClass;
     public static RubyClass MediaErrorClass;
     public static RubyClass MutexClass;
+    public static RubyClass TCPSocketClass;
+    public static RubyClass SSLSocketClass;
+    public static RubyClass TopSelfClass;
+    public static RubyClass MapViewClass;
     //RHO
 
     public static final RubyValue TOP_LEVEL_SELF_VALUE;
@@ -200,6 +204,7 @@ public class RubyRuntime {
         RubyTime_Methods.initMethods(TimeClass);
 
         HashClass = RubyAPI.defineClass("Hash", RubyRuntime.ObjectClass);
+        HashClass.includeModule(EnumerableModule);
         RubyHash_Methods.initMethods(HashClass);
 
         ProcClass = RubyAPI.defineClass("Proc", RubyRuntime.ObjectClass);
@@ -259,6 +264,9 @@ public class RubyRuntime {
         RingtoneManagerClass = RubyAPI.defineClass("RingtoneManager", RubyRuntime.ObjectClass);
         MediaErrorClass = RubyAPI.defineClass("MediaError", RubyRuntime.ObjectClass);
         MutexClass = RubyAPI.defineClass("Mutex", RubyRuntime.ObjectClass);
+        TCPSocketClass = RubyAPI.defineClass("TCPSocket", RubyRuntime.ObjectClass);
+        SSLSocketClass = RubyAPI.defineClass("SSLSocket", RubyRuntime.ObjectClass);
+        MapViewClass = RubyAPI.defineClass("MapView", RubyRuntime.ObjectClass);
         RubyMutex.initMethods(MutexClass);        
 //      RhoPhonebook.initMethods(PhonebookClass);
         
@@ -317,8 +325,9 @@ public class RubyRuntime {
 
         //TOP_LEVEL_SELF_VALUE = RubyTypeFactory.getObject(RubyTopSelf.class);
       //RHO_ADDED
-        TOP_LEVEL_SELF_VALUE = new RubyObject( ObjectClass );//RubyTopSelf();
-        //RubyTopSelf_Methods.initMethods(TOP_LEVEL_SELF_VALUE.getRubyClass());
+        TopSelfClass = RubyAPI.defineClass("__TopSelf", ObjectClass);
+        RubyTopSelf_Methods.initMethods(TopSelfClass);        
+        TOP_LEVEL_SELF_VALUE = TopSelfClass;//new RubyObject( TopSelfClass );//RubyTopSelf();
         
         StringIOClass = RubyAPI.defineClass("StringIO", RubyRuntime.ObjectClass);
         RubyStringIO_Methods.initMethods(StringIOClass);
@@ -347,7 +356,7 @@ public class RubyRuntime {
 
     private static void loadBuildinDotRb() {
         try {
-            Class c = Class.forName("xruby.builtinME.main");
+            Class c = Class.forName(RhoSupport.getAppName() + ".builtinME.main");
             Object o = c.newInstance();
             RubyProgram p = (RubyProgram) o;
             p.invoke();
@@ -374,6 +383,10 @@ public class RubyRuntime {
         	RubyAPI.setConstant(ObjectFactory.createString(":"), RubyRuntime.FileClass, "PATH_SEPARATOR");
         }
 
+    	RubyAPI.setConstant(ObjectFactory.createFixnum(RubyRegexp.RE_OPTION_IGNORECASE), RubyRuntime.RegexpClass, "IGNORECASE");
+    	RubyAPI.setConstant(ObjectFactory.createFixnum(RubyRegexp.RE_OPTION_EXTENDED), RubyRuntime.RegexpClass, "EXTENDED");
+    	RubyAPI.setConstant(ObjectFactory.createFixnum(RubyRegexp.RE_OPTION_MULTILINE), RubyRuntime.RegexpClass, "MULTILINE");
+        
         //RubyTypeFactory.getObject(RubyENV.class);
         //RHO_ADDED
         RubyClass EnvClass = RubyAPI.defineClass("ENV", RubyRuntime.ObjectClass);
