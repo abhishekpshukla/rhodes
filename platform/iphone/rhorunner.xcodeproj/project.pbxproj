@@ -1066,8 +1066,8 @@
 					"$(EXTENSIONS_LDFLAGS)",
 				);
 				PRODUCT_NAME = rhorunner;
-				PROVISIONING_PROFILE = "DDF7EA1F-F5FB-4F34-A2A4-521963E64272";
-				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "DDF7EA1F-F5FB-4F34-A2A4-521963E64272";
+				PROVISIONING_PROFILE = "A81C1C0E-0DFC-48CB-8CA5-8DDFF9859C78";
+				"PROVISIONING_PROFILE[sdk=iphoneos*]" = "A81C1C0E-0DFC-48CB-8CA5-8DDFF9859C78";
 				SDKROOT = iphoneos3.0;
 				USER_HEADER_SEARCH_PATHS = "../shared/curl/include ../shared/ ../shared/syncengine ../shared/logging ../shared/common rhoextlib";
 			};
